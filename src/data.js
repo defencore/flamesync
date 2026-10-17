@@ -354,17 +354,18 @@ export function compositionSize(
   width,
   height,
   maxEdge = 1920,
-  aspect = "source",
+  aspect = "landscape",
 ) {
-  if (aspect === "source") return outputSize(width, height, maxEdge);
   const ratios = { landscape: 16 / 9, portrait: 9 / 16, square: 1 };
-  const ratio = ratios[/** @type {keyof typeof ratios} */ (aspect)];
-  if (!ratio) return outputSize(width, height, maxEdge);
-  const edge = Math.max(width, height);
+  const ratio =
+    ratios[/** @type {keyof typeof ratios} */ (aspect)] ?? width / height;
+  // A selected export size defines the composition, including for small inputs.
+  // The original-size choice retains the source edge and chosen frame shape.
+  const edge = maxEdge || Math.max(width, height);
   return outputSize(
     ratio >= 1 ? edge : edge * ratio,
     ratio >= 1 ? edge / ratio : edge,
-    maxEdge,
+    0,
   );
 }
 

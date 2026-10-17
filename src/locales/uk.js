@@ -88,8 +88,8 @@ export const uk = {
   "Thrust unit": "Одиниця тяги",
   "Pressure unit": "Одиниця тиску",
   "Show test details": "Показувати дані випробування",
-  "Model, results, and source filenames":
-    "Модель, результати й назви вихідних файлів",
+  "Motor model, results, and test record":
+    "Модель двигуна, результати й дані випробування",
   "Side panel values": "Показники збоку",
   "About side panel values": "Про бокові показники",
   "Live totals show only the impulse and peaks reached at the current video time. They settle on the final results when the log ends.":
@@ -132,9 +132,9 @@ export const uk = {
     "Готовий файл створюється на вашому пристрої.",
   "File format": "Формат файлу",
   Resolution: "Роздільність",
-  "Up to 1080p": "До 1080p",
-  "Up to 4K": "До 4K",
-  "Up to 720p": "До 720p",
+  "Full HD · 1920 px": "Full HD · 1920 пікс.",
+  "4K · 3840 px": "4K · 3840 пікс.",
+  "HD · 1280 px": "HD · 1280 пікс.",
   "Original resolution": "Оригінальна роздільність",
   "Video quality": "Якість відео",
   "High · recommended": "Висока · рекомендовано",

@@ -19,6 +19,8 @@ export async function verifyEditorWorkflow({
   // playback history are needed to verify source names reach the video output.
   await page.addInitScript(() => {
     window.__qaPreviewTexts = [];
+    window.__qaPreviewItems = [];
+    window.__qaVideoRect = null;
     const originalFill = CanvasRenderingContext2D.prototype.fillRect;
     CanvasRenderingContext2D.prototype.fillRect = function (x, y, width, height) {
       if (
@@ -28,8 +30,11 @@ export async function verifyEditorWorkflow({
         width === this.canvas.width &&
         height === this.canvas.height &&
         this.getTransform().isIdentity
-      )
+      ) {
         window.__qaPreviewTexts = [];
+        window.__qaPreviewItems = [];
+        window.__qaVideoRect = null;
+      }
       return originalFill.call(this, x, y, width, height);
     };
     const originalText = CanvasRenderingContext2D.prototype.fillText;
@@ -38,8 +43,50 @@ export async function verifyEditorWorkflow({
         window.__qaPreviewTexts.push(String(args[0]));
         if (window.__qaPreviewTexts.length > 256)
           window.__qaPreviewTexts.shift();
+        const metrics = this.measureText(String(args[0]));
+        const width = Math.min(metrics.width, args[3] ?? Infinity);
+        const left =
+          this.textAlign === "right" || this.textAlign === "end"
+            ? args[1] - width
+            : this.textAlign === "center"
+              ? args[1] - width / 2
+              : args[1];
+        const transform = this.getTransform();
+        const top = transform.transformPoint({
+          x: left,
+          y: args[2] - metrics.actualBoundingBoxAscent,
+        });
+        const bottom = transform.transformPoint({
+          x: left + width,
+          y: args[2] + metrics.actualBoundingBoxDescent,
+        });
+        window.__qaPreviewItems.push({
+          text: String(args[0]),
+          left: top.x,
+          top: top.y,
+          right: bottom.x,
+          bottom: bottom.y,
+        });
       }
       return originalText.apply(this, args);
+    };
+    const originalImage = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (...args) {
+      if (
+        this.canvas.id === "preview" &&
+        args[0] instanceof HTMLVideoElement &&
+        args.length === 5
+      ) {
+        const transform = this.getTransform();
+        const point = transform.transformPoint({ x: args[1], y: args[2] });
+        window.__qaVideoRect = {
+          x: point.x,
+          y: point.y,
+          width: args[3] * transform.a,
+          height: args[4] * transform.d,
+        };
+      }
+      return originalImage.apply(this, args);
     };
   });
   page.on("pageerror", (error) =>
@@ -235,12 +282,9 @@ export async function verifyEditorWorkflow({
           const texts = window.__qaPreviewTexts;
           const video = texts.indexOf("VIDEO");
           const log = texts.indexOf("LOG", video + 1);
-          const record = texts.indexOf("TEST RECORD", log + 1);
           if (video < 0 || log <= video) return false;
           const videoName = texts.slice(video + 1, log).join("");
-          const logName = texts
-            .slice(log + 1, record < 0 ? undefined : record)
-            .join("");
+          const logName = texts.slice(log + 1).join("");
           return (
             videoName.includes("Відео-") &&
             videoName.includes(".webm") &&
@@ -250,6 +294,101 @@ export async function verifyEditorWorkflow({
         });
         await page.locator("#preview-workspace").screenshot({
           path: join(outputDir, "video-overlay-long-filenames.png"),
+        });
+      },
+    );
+    await caseOf(
+      "FullHD composition keeps footage fixed and every populated record visible",
+      async () => {
+        await open();
+        assert.equal(await page.locator("#frame-aspect").inputValue(), "landscape");
+        assert.equal(await page.locator("#export-resolution").inputValue(), "1920");
+        assert.deepEqual(
+          await page.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]),
+          [1920, 1080],
+        );
+        const baseline = await page.evaluate(() => window.__qaVideoRect);
+        assert.ok(baseline?.width && baseline?.height);
+        await page.locator("#more-test-details").evaluate((element) => {
+          element.open = true;
+        });
+        const fields = {
+          testId: "TEST ID",
+          location: "LOCATION",
+          logger: "LOGGER",
+          sampleRate: "LOG RATE",
+          camera: "CAMERA",
+          notes: "NOTES",
+        };
+        await page.locator("#meta-motor").fill("MD68 / DEVELOPMENT TEST");
+        await page.locator("#meta-testDate").fill("2026-10-17");
+        for (const key of Object.keys(fields)) {
+          const input = page.locator(`#meta-${key}`);
+          const maximum = await input.evaluate((element) => element.maxLength);
+          const value = `${key}: Калібровані датчики / Test record `.repeat(20);
+          await input.fill(value.slice(0, maximum > 0 ? maximum : 100));
+        }
+        await settle();
+        assert.deepEqual(
+          await page.evaluate(() => window.__qaVideoRect),
+          baseline,
+          "Filling metadata must not reduce the footage",
+        );
+        await click("tab-overlay");
+        for (const showDetails of [true, false]) {
+          for (const showPressure of [true, false]) {
+            for (const showImpulse of [true, false]) {
+              await page.locator("#show-details").setChecked(showDetails);
+              await page.locator("#show-pressure").setChecked(showPressure);
+              await page.locator("#show-impulse").setChecked(showImpulse);
+              await settle();
+              const frame = await page.evaluate(() => ({
+                video: window.__qaVideoRect,
+                texts: window.__qaPreviewTexts,
+                items: window.__qaPreviewItems,
+              }));
+              assert.deepEqual(
+                frame.video,
+                baseline,
+                `Footage moves when details=${showDetails}, pressure=${showPressure}, impulse=${showImpulse}`,
+              );
+              assert.ok(frame.texts.some((text) => text.startsWith("Frame ")));
+              assert.ok(frame.texts.some((text) => text.startsWith("CSV row ")));
+              assert.ok(frame.texts.includes("workflow-local.webm"));
+              assert.ok(frame.texts.includes("workflow-local.csv"));
+              if (showDetails) {
+                for (const [key, label] of Object.entries(fields)) {
+                  assert.ok(frame.texts.includes(label), `${label} must not be omitted`);
+                  assert.ok(
+                    frame.texts.some((text) => text.startsWith(`${key}:`)),
+                    `${label} must retain its value`,
+                  );
+                }
+              }
+              for (const item of frame.items) {
+                assert.ok(
+                  item.left >= -0.5 && item.top >= -0.5 &&
+                    item.right <= 1920.5 && item.bottom <= 1080.5,
+                  `${item.text} leaves the FullHD frame: ${JSON.stringify(item)}`,
+                );
+              }
+            }
+          }
+        }
+        await page.locator("#show-details").check();
+        await page.locator("#show-pressure").check();
+        await page.locator("#show-impulse").check();
+        for (const theme of ["dark", "light"]) {
+          await page.locator(`[data-theme="${theme}"]`).click();
+          await settle();
+          const image = await page.locator("#preview").evaluate((canvas) => canvas.toDataURL("image/png"));
+          await writeFile(
+            join(outputDir, `fullhd-complete-record-${theme}.png`),
+            Buffer.from(image.split(",")[1], "base64"),
+          );
+        }
+        await page.locator("#preview-workspace").screenshot({
+          path: join(outputDir, "fullhd-complete-record-workspace.png"),
         });
       },
     );

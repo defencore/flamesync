@@ -558,8 +558,8 @@
                   ></b
                 ><small
                   ><span
-                    data-i18n="Model, results, and source filenames"
-                    >Model, results, and source filenames</span
+                    data-i18n="Motor model, results, and test record"
+                    >Motor model, results, and test record</span
                   ></small
                 ></span
               ><input id="show-details" type="checkbox" checked role="switch"
@@ -612,11 +612,11 @@
             <label class="field"
               ><span data-i18n="Output frame">Output frame</span
               ><select id="frame-aspect">
+                <option value="landscape" selected data-i18n="16:9 · landscape">
+                  16:9 · landscape
+                </option>
                 <option value="source" data-i18n="Match source aspect ratio">
                   Match source aspect ratio
-                </option>
-                <option value="landscape" data-i18n="16:9 · landscape">
-                  16:9 · landscape
                 </option>
                 <option value="portrait" data-i18n="9:16 · portrait">
                   9:16 · portrait
@@ -654,13 +654,13 @@
             </div>
             <label class="field range-label" for="overlay-height"
               ><span data-i18n="Panel height">Panel height</span>
-              <output id="height-value">30%</output></label
+              <output id="height-value">25%</output></label
             ><input
               id="overlay-height"
               type="range"
               min="25"
               max="48"
-              value="30"
+              value="25"
             />
             <div id="opacity-setting" hidden>
               <label class="field range-label" for="overlay-opacity"
@@ -758,11 +758,11 @@
             <label class="field"
               ><span data-i18n="Resolution">Resolution</span
               ><select id="export-resolution">
-                <option value="1920" data-i18n="Up to 1080p">
-                  Up to 1080p
+                <option value="1920" selected data-i18n="Full HD · 1920 px">
+                  Full HD · 1920 px
                 </option>
-                <option value="3840" data-i18n="Up to 4K">Up to 4K</option>
-                <option value="1280" data-i18n="Up to 720p">Up to 720p</option>
+                <option value="3840" data-i18n="4K · 3840 px">4K · 3840 px</option>
+                <option value="1280" data-i18n="HD · 1280 px">HD · 1280 px</option>
                 <option value="0" data-i18n="Original resolution">
                   Original resolution
                 </option>

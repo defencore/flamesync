@@ -127,7 +127,25 @@ test("detects the interpolated five percent ignition crossing", () => {
 test("keeps aspect ratio and even codec dimensions for portrait, landscape, and odd inputs", () => {
   assert.deepEqual(outputSize(3840, 2160, 1920), { width: 1920, height: 1080 });
   assert.deepEqual(outputSize(2160, 3840, 1920), { width: 1080, height: 1920 });
+  assert.deepEqual(outputSize(832, 464, 1920), { width: 832, height: 464 });
   assert.deepEqual(outputSize(641, 481, 0), { width: 642, height: 482 });
+});
+test("default video composition is true Full HD landscape for every source size", () => {
+  assert.equal(defaultStyle.frameAspect, "landscape");
+  for (const [width, height] of [
+    [832, 464],
+    [464, 832],
+    [3840, 2160],
+  ]) {
+    assert.deepEqual(compositionSize(width, height), {
+      width: 1920,
+      height: 1080,
+    });
+    assert.deepEqual(
+      compositionSize(width, height, 1920, defaultStyle.frameAspect),
+      { width: 1920, height: 1080 },
+    );
+  }
 });
 test("rounds timecode at minute boundaries consistently", () => {
   assert.equal(formatTime(59.9998), "01:00.000");
@@ -154,7 +172,7 @@ test("full-frame layout preserves every source corner outside charts and details
     assert.ok(video.y + video.height <= h - panelHeight + 1e-8);
   }
 });
-test("output aspect choices produce even, bounded dimensions without stretching the video", () => {
+test("output aspect choices use the requested size even when the source is smaller", () => {
   assert.deepEqual(compositionSize(3840, 2160, 1920, "portrait"), {
     width: 1080,
     height: 1920,
@@ -164,8 +182,24 @@ test("output aspect choices produce even, bounded dimensions without stretching 
     height: 720,
   });
   assert.deepEqual(compositionSize(960, 540, 1920, "square"), {
-    width: 960,
-    height: 960,
+    width: 1920,
+    height: 1920,
+  });
+  assert.deepEqual(compositionSize(464, 832, 1920, "portrait"), {
+    width: 1080,
+    height: 1920,
+  });
+  assert.deepEqual(compositionSize(640, 480, 1920, "source"), {
+    width: 1920,
+    height: 1440,
+  });
+  assert.deepEqual(compositionSize(832, 464, 0, "source"), {
+    width: 832,
+    height: 464,
+  });
+  assert.deepEqual(compositionSize(832, 464, 0, "landscape"), {
+    width: 832,
+    height: 468,
   });
   assert.deepEqual(
     containRect(1920, 1080, { x: 0, y: 0, width: 100, height: 100 }),

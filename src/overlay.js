@@ -1,19 +1,21 @@
 import { clamp, sampleAt, dataTimeAt, formatValue } from "./data.js";
 import { drawIntervalMarkers } from "./measurement-chart.js";
 import { displayThrust, displayPressure } from "./units.js";
+import { presentationScale, telemetryHeight } from "./composition-layout.js";
+import { textLines } from "./canvas-text.js";
 
 export const defaultStyle = {
   title: "STATIC FIRE TEST",
   thrustUnit: "N",
   pressureUnit: "bar",
   theme: "dark",
-  height: 30,
+  height: 25,
   opacity: 90,
   trace: "full",
   showPressure: true,
   showImpulse: false,
   layout: "full",
-  frameAspect: "source",
+  frameAspect: "landscape",
   showDetails: true,
   summaryMode: "live",
 };
@@ -31,41 +33,27 @@ export const defaultMetadata = {
 
 // Limit the virtual scale by height as well as width so ultrawide recordings
 // retain a positive plotting area and legible graphics at the minimum setting.
-function overlayScale(w, h) {
-  return Math.min(w / (h > w ? 800 : 1120), h / 400);
-}
-
 export function overlayHeight(w, h, style) {
-  const scale = overlayScale(w, h);
-  const virtualHeight = h / scale;
-  return (
-    clamp(
-      (virtualHeight * style.height) / 100,
-      h > w ? 240 : style.showImpulse ? 218 : 194,
-      virtualHeight * 0.55,
-    ) * scale
-  );
+  return telemetryHeight(w, h, style);
 }
 
 // Preview and export share these bounds; the chart and instantaneous values
 // always occupy separate regions regardless of source or metadata density.
 export function overlayGeometry(w, h, style) {
-  const scale = overlayScale(w, h);
+  const scale = presentationScale(w, h);
   const width = w / scale;
   const height = h / scale;
   const panelHeight = overlayHeight(w, h, style) / scale;
   const top = height - panelHeight;
-  const metricsWidth = h > w ? 214 : 226;
+  const metricsWidth = width * 0.25 - 12;
   const divider = width - metricsWidth - 12;
-  const chartRight = divider - (style.showPressure ? 56 : 24);
+  const chartRight = divider - 72;
   const chart = {
-    x: 66,
-    y: top + 65,
-    width: chartRight - 66,
-    height: panelHeight - 99,
+    x: 82,
+    y: top + 67,
+    width: chartRight - 82,
+    height: panelHeight - 161,
   };
-  const metricCount =
-    2 + Number(style.showPressure) + Number(style.showImpulse);
   return {
     scale,
     width,
@@ -73,18 +61,13 @@ export function overlayGeometry(w, h, style) {
     panelHeight,
     top,
     chart,
+    footer: { x: 0, y: height - 64, width, height: 64 },
     metrics: {
-      x: divider + 20,
-      y: top + 57,
+      x: divider + 26,
+      y: top + 60,
       width: metricsWidth - 36,
-      rowHeight: clamp(
-        (panelHeight - 87 - Number(style.showImpulse) * 24) /
-          (1 + Number(style.showPressure)),
-        48,
-        64,
-      ),
-      compactY: height - 19 - Number(style.showImpulse) * 24,
-      count: metricCount,
+      rowHeight: 66,
+      compactY: height - 80,
       divider,
     },
   };
@@ -130,8 +113,7 @@ function text(
   ctx.font = `${weight} ${size}px system-ui, -apple-system, sans-serif`;
   ctx.fillStyle = color;
   ctx.textAlign = align;
-  if (maxWidth === undefined) ctx.fillText(content, x, y);
-  else ctx.fillText(content, x, y, maxWidth);
+  ctx.fillText(maxWidth === undefined ? content : textLines(ctx, content, maxWidth, 1)[0] || "", x, y);
 }
 
 export function drawOverlay(
@@ -180,14 +162,14 @@ export function drawOverlay(
     Math.abs(timeScale - 1) > 1e-8
       ? `TIME STRETCH ${Number((timeScale * 100).toFixed(3))}% · ${phase}`
       : phase;
-  text(ctx, status, width - 26, top + 28, 10, muted, 500, "right");
+  text(ctx, status, width - 26, top + 29, 16, muted, 500, "right");
   const statusWidth = ctx.measureText(status).width;
   text(
     ctx,
     style.title.slice(0, 46),
     26,
     top + 28,
-    13,
+    20,
     fg,
     650,
     "left",
@@ -232,7 +214,7 @@ export function drawOverlay(
       data ? axisLabel(tick) : "—",
       chartX - 10,
       gy + 4,
-      11,
+      17,
       thrustColor,
       400,
       "right",
@@ -248,22 +230,22 @@ export function drawOverlay(
         data ? axisLabel(tick) : "—",
         chartRight + 9,
         gy + 4,
-        11,
+        17,
         pressureColor,
         400,
         "left",
-        43,
+        60,
       );
     }
   }
-  text(ctx, `Thrust · ${style.thrustUnit}`, chartX, chartY - 14, 11, thrustColor, 600);
+  text(ctx, `Thrust · ${style.thrustUnit}`, chartX, chartY - 15, 17, thrustColor, 600);
   if (style.showPressure)
     text(
       ctx,
       `Pressure · ${style.pressureUnit}`,
       chartRight,
-      chartY - 14,
-      11,
+      chartY - 15,
+      17,
       pressureColor,
       600,
       "right",
@@ -276,7 +258,7 @@ export function drawOverlay(
         : "",
       chartX + (chartW * i) / 4,
       chartBottom + 20,
-      11,
+      16,
       muted,
       400,
       "center",
@@ -321,7 +303,7 @@ export function drawOverlay(
       "Waiting for CSV data",
       center,
       centerY - 3,
-      14,
+      20,
       fg,
       550,
       "center",
@@ -371,16 +353,16 @@ export function drawOverlay(
   ctx.strokeStyle = grid;
   ctx.beginPath();
   ctx.moveTo(metrics.divider, top + 50);
-  ctx.lineTo(metrics.divider, height - 22);
+  ctx.lineTo(metrics.divider, height - 80);
   ctx.stroke();
   const rowH = metrics.rowHeight;
   let row = 0;
   const metric = (label, value, unit, color = fg) => {
     const my = metrics.y + row++ * rowH;
-    const valueY = my + 30;
-    const valueSize = 26;
-    text(ctx, label.toUpperCase(), mx, my, 11, muted, 600);
-    text(ctx, unit, width - 26, valueY, 12, color, 500, "right");
+    const valueY = my + 37;
+    const valueSize = 32;
+    text(ctx, label.toUpperCase(), mx, my, 17, muted, 600);
+    text(ctx, unit, width - 26, valueY, 18, color, 500, "right");
     const unitWidth = ctx.measureText(unit).width;
     text(
       ctx,
@@ -395,13 +377,13 @@ export function drawOverlay(
     );
   };
   const compactMetric = (label, value, unit, y) => {
-    text(ctx, label.toUpperCase(), mx, y, 10, muted, 600);
+    text(ctx, label.toUpperCase(), mx, y, 15, muted, 600);
     text(
       ctx,
       `${value} ${unit}`,
       width - 26,
       y,
-      13,
+      18,
       fg,
       500,
       "right",
@@ -424,7 +406,6 @@ export function drawOverlay(
       style.pressureUnit,
       pressureColor,
     );
-  compactMetric("CSV time", data ? t.toFixed(3) : "—", "s", metrics.compactY);
   if (style.showImpulse)
     compactMetric(
       "Impulse",
@@ -437,7 +418,7 @@ export function drawOverlay(
           : null,
       ),
       `${style.thrustUnit}·s`,
-      metrics.compactY + 24,
+      metrics.compactY,
     );
   ctx.restore();
 }

@@ -149,6 +149,65 @@ async function regionPixels(target, region) {
   );
 }
 
+async function verifyDefaultFullHD(fixture) {
+  const editor = await browser.newPage({
+    viewport: { width: 1440, height: 1050 },
+    locale: "en-US",
+  });
+  editor.on("pageerror", (error) => failures.push(`FullHD default: ${error.message}`));
+  editor.on("console", (entry) => {
+    if (entry.type() === "error") failures.push(`FullHD default: ${entry.text()}`);
+  });
+  editor.on("request", (request) =>
+    requests.push({ url: request.url(), method: request.method() }),
+  );
+  try {
+    await openEditor(editor);
+    await editor.locator("#import-input").setInputFiles([
+      { name: "fullhd-small-source.webm", mimeType: "video/webm", buffer: fixture },
+      {
+        name: "fullhd-local.csv",
+        mimeType: "text/csv",
+        buffer: Buffer.from("time_ms;thrust;pressure\n0;0;0\n100;100;2\n300;0;0"),
+      },
+    ]);
+    await editor.waitForFunction(() =>
+      document.querySelector("#timing-video-detail").textContent.includes("frames checked") &&
+      !document.querySelector("#export-button").disabled,
+    );
+    assert.equal(await editor.locator("#frame-aspect").inputValue(), "landscape");
+    assert.equal(await editor.locator("#export-resolution").inputValue(), "1920");
+    assert.deepEqual(
+      await editor.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]),
+      [1920, 1080],
+      "A source smaller than FullHD must still preview the default FullHD composition",
+    );
+    await change("trim-end", 0.3, editor);
+    const downloadEvent = editor.waitForEvent("download", { timeout: 60000 });
+    await click("save-video", editor);
+    const path = join(outputDir, "default-fullhd.mp4");
+    await (await downloadEvent).saveAs(path);
+    await editor.waitForFunction(() => !document.querySelector("#export-dialog").open);
+    const input = new Input({
+      source: new BufferSource(new Uint8Array(await readFile(path))),
+      formats: ALL_FORMATS,
+    });
+    try {
+      const track = await input.getPrimaryVideoTrack();
+      assert.ok(track);
+      assert.equal(await track.getDisplayWidth(), 1920);
+      assert.equal(await track.getDisplayHeight(), 1080);
+      const duration = await input.computeDuration();
+      assert.ok(duration >= 0.299 && duration < 0.4, `Unexpected FullHD clip duration ${duration}`);
+    } finally {
+      input.dispose();
+    }
+    console.log("PASS: default export from a smaller source is actual 1920 × 1080, 16:9");
+  } finally {
+    await editor.close();
+  }
+}
+
 async function verifyLocalization(fixture) {
   const editor = await browser.newPage({
     viewport: { width: 1440, height: 1050 },
@@ -1126,6 +1185,7 @@ async function verifyVideoClocks() {
     await change("trim-start", 0.5, editor);
     await change("trim-end", 2.5, editor);
     await editor.getByRole("tab", { name: "Export", exact: true }).click();
+    await select("export-resolution", "1280", editor);
     for (const rate of variable ? [0, 30] : [0]) {
       await select("export-fps", String(rate), editor);
       const event = editor.waitForEvent("download", { timeout: 60000 });
@@ -1282,6 +1342,7 @@ try {
   });
   failures.push(...workflow.failures);
   requests.push(...workflow.requests);
+  await verifyDefaultFullHD(fixture);
   await verifyLocalization(fixture);
   await verifyIgnitionAlignment(fixture);
   await verifyPlayheadGeometry(page);
@@ -1528,6 +1589,7 @@ try {
     fullPage: true,
   });
   await page.getByRole("tab", { name: "Export", exact: true }).click();
+  await select("export-resolution", "1280");
   const regions = await compositionRegions(page);
   const previewPixels = await regionPixels(page, regions.panel);
   assert.ok(regions.details, "The source record must be included in export checks.");
@@ -1555,8 +1617,8 @@ try {
         await input.getPrimaryAudioTrack(),
         "Audio must be present in the exported file.",
       );
-      assert.equal(await videoTrack.getDisplayWidth(), 960);
-      assert.equal(await videoTrack.getDisplayHeight(), 540);
+      assert.equal(await videoTrack.getDisplayWidth(), 1280);
+      assert.equal(await videoTrack.getDisplayHeight(), 720);
       const duration = await input.computeDuration();
       assert.ok(
         duration >= 3 && duration < 3.12,
@@ -1649,7 +1711,7 @@ try {
   await select("frame-aspect", "square");
   assert.deepEqual(
     await page.locator("#preview").evaluate((c) => [c.width, c.height]),
-    [960, 960],
+    [1920, 1920],
   );
   await select("presentation-layout", "overlay");
   assert.equal(await page.locator("#details-layout-note").isVisible(), true);
