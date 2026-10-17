@@ -1,0 +1,2272 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Turn static-fire footage and CSV telemetry into precisely synchronized videos. Trim, style, and export entirely in your browser."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' ws://localhost:* ws://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <meta name="theme-color" content="#f6f7f5" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title data-i18n="FlameSync — Burn Video Studio">
+      FlameSync — Burn Video Studio
+    </title>
+  </head>
+  <body>
+    <svg
+      class="icon-library"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <defs>
+        <symbol id="i-upload" viewBox="0 0 24 24">
+          <path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5" />
+        </symbol>
+        <symbol id="i-video" viewBox="0 0 24 24">
+          <rect x="3" y="5" width="13" height="14" rx="2" />
+          <path d="m16 9 5-3v12l-5-3" />
+        </symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24">
+          <path d="M3 4v17h18M6 15l4-7 4 5 6-9" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24">
+          <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6" />
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24">
+          <path d="m8 4 12 8-12 8z" />
+        </symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24">
+          <path d="M8 5v14M16 5v14" />
+        </symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24">
+          <path d="M9 5 3 11l6 6M3 11h11a6 6 0 0 1 6 6v3" />
+        </symbol>
+        <symbol id="i-redo" viewBox="0 0 24 24">
+          <path d="m15 5 6 6-6 6m6-6H10a6 6 0 0 0-6 6v3" />
+        </symbol>
+        <symbol id="i-snap" viewBox="0 0 24 24">
+          <path
+            d="M5 3v10a7 7 0 0 0 14 0V3h-5v10a2 2 0 0 1-4 0V3zM5 7h5m4 0h5"
+          />
+        </symbol>
+        <symbol id="i-loop" viewBox="0 0 24 24">
+          <path
+            d="m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4m14-1v3a2 2 0 0 1-2 2H3"
+          />
+        </symbol>
+        <symbol id="i-back" viewBox="0 0 24 24">
+          <path d="M5 4v16m15-16L7 12l13 8z" />
+        </symbol>
+        <symbol id="i-next" viewBox="0 0 24 24">
+          <path d="M19 4v16M4 4l13 8-13 8z" />
+        </symbol>
+        <symbol id="i-start" viewBox="0 0 24 24">
+          <path d="M3 4v16M12 5l-7 7 7 7zM21 5l-7 7 7 7z" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24">
+          <path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4" />
+        </symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24">
+          <path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6" />
+        </symbol>
+        <symbol id="i-target" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="7" />
+          <path d="M12 2v5m0 10v5M2 12h5m10 0h5" />
+        </symbol>
+        <symbol id="i-reset" viewBox="0 0 24 24">
+          <path d="M3 10a9 9 0 1 1 2 8M3 4v6h6" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+          <path d="m5 12 4 4L19 6" />
+        </symbol>
+        <symbol id="i-help" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3v1" />
+        </symbol>
+        <symbol id="i-volume" viewBox="0 0 24 24">
+          <path
+            d="M11 4 5 9H2v6h3l6 5zM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"
+          />
+        </symbol>
+        <symbol id="i-muted" viewBox="0 0 24 24">
+          <path d="M11 4 5 9H2v6h3l6 5zM16 9l6 6m0-6-6 6" />
+        </symbol>
+        <symbol id="i-sliders" viewBox="0 0 24 24">
+          <path d="M4 7h16M4 17h16M8 4v6m8 4v6" />
+        </symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24">
+          <path d="M4 12h16m-5-5 5 5-5 5" />
+        </symbol>
+      </defs>
+    </svg>
+    <header class="site-header">
+      <a
+        class="brand"
+        href="./"
+        aria-label="FlameSync home"
+        data-i18n-aria-label="FlameSync home"
+        ><span class="brand-mark"
+          ><svg viewBox="0 0 36 36">
+            <path d="M5 21h6l4-11 6 19 4-12h6" /></svg></span
+        ><span>flame<span class="brand-light">sync</span></span></a
+      >
+      <div class="header-right">
+        <label class="language-picker"
+          ><span class="sr-only"
+            ><span data-i18n="Interface language"
+              >Interface language</span
+            ></span
+          ><select
+            id="language-select"
+            aria-label="Interface language"
+            data-i18n-aria-label="Interface language"
+          >
+            <option value="uk">UA</option>
+            <option value="en">EN</option>
+          </select></label
+        >
+        <button class="text-button" id="export-settings">
+          <span data-i18n="Export settings">Export settings</span>
+        </button>
+        <button
+          id="export-button"
+          class="button primary"
+          data-save-video
+          aria-describedby="save-status"
+          disabled
+        >
+          <svg class="icon"><use href="#i-download" /></svg
+          ><span data-i18n="Save video">Save video</span>
+        </button>
+        <span class="privacy-badge"
+          ><svg class="icon"><use href="#i-shield" /></svg
+          ><span data-i18n="100% local processing"
+            >100% local processing</span
+          ></span
+        ><button
+          class="help-button"
+          id="help-open"
+          aria-label="Quick guide"
+          data-i18n-aria-label="Quick guide"
+        >
+          <svg class="icon"><use href="#i-help" /></svg
+          ><span><span data-i18n="Quick guide">Quick guide</span></span>
+        </button>
+      </div>
+    </header>
+    <main class="shell">
+      <div class="page-heading">
+        <div>
+          <div class="eyebrow">
+            <span data-i18n="FOOTAGE + TELEMETRY, IN SYNC"
+              >FOOTAGE + TELEMETRY, IN SYNC</span
+            >
+          </div>
+          <h1 data-i18n="Video &amp; telemetry editor">
+            Video &amp; telemetry editor
+          </h1>
+          <p>
+            <span
+              data-i18n="1. Add video and CSV · 2. Align the ignition · 3. Save your video."
+              >1. Add video and CSV · 2. Align the ignition · 3. Save your
+              video.</span
+            >
+          </p>
+        </div>
+        <button id="demo-button" class="button secondary">
+          <svg class="icon"><use href="#i-play" /></svg
+          ><span data-i18n="Load demo">Load demo</span>
+        </button>
+      </div>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <div class="workspace" id="workspace">
+        <aside class="inspector panel">
+          <div
+            class="tabs"
+            role="tablist"
+            aria-label="Editor settings"
+            data-i18n-aria-label="Editor settings"
+          >
+            <button
+              class="tab active"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panel-sources"
+              id="tab-sources"
+              data-panel="sources"
+            >
+              <span data-i18n="Project">Project</span></button
+            ><button
+              class="tab"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-overlay"
+              id="tab-overlay"
+              data-panel="overlay"
+              tabindex="-1"
+            >
+              <span data-i18n="Appearance">Appearance</span></button
+            ><button
+              class="tab"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-export"
+              id="tab-export"
+              data-panel="export"
+              tabindex="-1"
+            >
+              <span data-i18n="Export">Export</span>
+            </button>
+          </div>
+          <div
+            class="inspector-content"
+            id="panel-sources"
+            role="tabpanel"
+            aria-labelledby="tab-sources"
+          >
+            <div class="section-heading">
+              <h2 data-i18n="Files &amp; test record">
+                Files &amp; test record
+              </h2>
+              <button id="import-files" class="text-button">
+                <span data-i18n="Add files">Add files</span></button
+              ><input
+                id="import-input"
+                type="file"
+                accept="video/*,.mov,.mkv,.csv,.tsv,.txt"
+                multiple
+                hidden
+              />
+            </div>
+            <p class="small muted">
+              <span
+                data-i18n="Drop video and CSV together anywhere in the editor."
+                >Drop video and CSV together anywhere in the editor.</span
+              >
+            </p>
+            <label class="drop-zone" id="video-drop" for="video-input"
+              ><span class="upload-icon"
+                ><svg class="icon"><use href="#i-video" /></svg></span
+              ><strong id="video-filename"
+                ><span data-i18n="Choose a video">Choose a video</span></strong
+              ><span id="video-meta"
+                ><span data-i18n="or drop it here">or drop it here</span></span
+              ><span class="file-types"
+                ><span data-i18n="MP4, MOV, WebM · browser supported"
+                  >MP4, MOV, WebM · browser supported</span
+                ></span
+              ><input type="file" accept="video/*,.mov,.mkv" id="video-input"
+            /></label>
+            <label class="drop-zone csv-drop" id="csv-drop" for="csv-input"
+              ><span class="upload-icon"
+                ><svg class="icon"><use href="#i-chart" /></svg></span
+              ><strong id="csv-filename"
+                ><span data-i18n="Choose a CSV log"
+                  >Choose a CSV log</span
+                ></strong
+              ><span id="csv-meta"
+                ><span data-i18n="or drop it here">or drop it here</span></span
+              ><span class="file-types" data-i18n="Time, thrust &amp; pressure"
+                >Time, thrust &amp; pressure</span
+              ><input
+                type="file"
+                accept=".csv,.txt,.tsv,text/csv"
+                id="csv-input"
+            /></label>
+            <div class="project-record">
+              <h3><span data-i18n="Test record">Test record</span></h3>
+              <label class="field"
+                ><span data-i18n="Motor model">Motor model</span
+                ><input
+                  id="meta-motor"
+                  type="text"
+                  maxlength="70"
+                  placeholder="e.g. Motor A / Rev. 2"
+                  data-i18n-placeholder="e.g. Motor A / Rev. 2"
+              /></label>
+              <label class="field"
+                ><span data-i18n="Test date">Test date</span
+                ><input
+                  id="meta-testDate"
+                  type="text"
+                  placeholder="YYYY-MM-DD"
+                  maxlength="10"
+                  pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                  title="Use YYYY-MM-DD, for example 2026-10-16."
+                  autocomplete="off"
+                  data-i18n-title="Use YYYY-MM-DD, for example 2026-10-16."
+              /></label>
+              <details class="disclosure" id="more-test-details">
+                <summary>
+                  <span data-i18n="More test details">More test details</span>
+                  <span
+                    ><span data-i18n="Logger, camera, notes"
+                      >Logger, camera, notes</span
+                    ></span
+                  >
+                </summary>
+                <div class="disclosure-body">
+                  <label class="field"
+                    ><span data-i18n="Test ID">Test ID</span
+                    ><input
+                      id="meta-testId"
+                      type="text"
+                      maxlength="60"
+                      placeholder="e.g. STATIC-004"
+                      data-i18n-placeholder="e.g. STATIC-004"
+                  /></label>
+                  <label class="field"
+                    ><span data-i18n="Test location">Test location</span
+                    ><input
+                      id="meta-location"
+                      type="text"
+                      maxlength="80"
+                      placeholder="e.g. Outdoor test stand"
+                      data-i18n-placeholder="e.g. Outdoor test stand"
+                  /></label>
+                  <label class="field"
+                    ><span data-i18n="Data logger / acquisition"
+                      >Data logger / acquisition</span
+                    ><input
+                      id="meta-logger"
+                      type="text"
+                      maxlength="100"
+                      placeholder="Device, sensor, or software"
+                      data-i18n-placeholder="Device, sensor, or software"
+                  /></label>
+                  <label class="field"
+                    ><span data-i18n="Log sample rate">Log sample rate</span
+                    ><input
+                      id="meta-sampleRate"
+                      type="text"
+                      maxlength="50"
+                      placeholder="Automatic from CSV · or enter a value"
+                      data-i18n-placeholder="Automatic from CSV · or enter a value"
+                  /></label>
+                  <label class="field"
+                    ><span data-i18n="Camera / recording"
+                      >Camera / recording</span
+                    ><input
+                      id="meta-camera"
+                      type="text"
+                      maxlength="100"
+                      placeholder="Camera model, resolution, or capture mode"
+                      data-i18n-placeholder="Camera model, resolution, or capture mode"
+                  /></label>
+                  <label class="field"
+                    ><span data-i18n="Recording notes">Recording notes</span
+                    ><textarea
+                      id="meta-notes"
+                      maxlength="240"
+                      rows="3"
+                      placeholder="Calibration, filtering, test conditions…"
+                      data-i18n-placeholder="Calibration, filtering, test conditions…"
+                    ></textarea>
+                  </label>
+                </div>
+              </details>
+            </div>
+            <details class="disclosure" id="csv-settings">
+              <summary>
+                <span data-i18n="CSV format &amp; units"
+                  >CSV format &amp; units</span
+                ><button
+                  type="button"
+                  class="info-button"
+                  data-help="Set the actual units recorded in your file. Time is read from time_ms, time_us, or time_s; a generic time column needs an explicit unit. Changing the time unit resets alignment. Choose converted video units in Appearance."
+                  aria-label="About CSV units"
+                  data-i18n-aria-label="About CSV units"
+                  data-i18n-data-help="Set the actual units recorded in your file. Time is read from time_ms, time_us, or time_s; a generic time column needs an explicit unit. Changing the time unit resets alignment. Choose converted video units in Appearance."
+                >
+                  i
+                </button>
+              </summary>
+              <div class="disclosure-body">
+                <p class="small muted" id="csv-units-summary">
+                  <span data-i18n="Set the units recorded in the source file."
+                    >Set the units recorded in the source file.</span
+                  >
+                </p>
+                <div class="format-tip">
+                  <span
+                    ><span data-i18n="EXPECTED CSV FORMAT"
+                      >EXPECTED CSV FORMAT</span
+                    ></span
+                  ><code
+                    >time_ms;thrust;pressure<br />0;0.4;0.0<br />16;0.4;0.0</code
+                  ><button class="text-button" id="sample-csv">
+                    <span data-i18n="Download sample CSV"
+                      >Download sample CSV</span
+                    >
+                    <span>↗</span>
+                  </button>
+                </div>
+                <label class="field"
+                  ><span data-i18n="CSV time unit">CSV time unit</span
+                  ><select id="csv-time-unit">
+                    <option value="auto" data-i18n="From header · ms / µs / s">
+                      From header · ms / µs / s
+                    </option>
+                    <option value="ms" data-i18n="Milliseconds (ms)">
+                      Milliseconds (ms)
+                    </option>
+                    <option value="us" data-i18n="Microseconds (µs)">
+                      Microseconds (µs)
+                    </option>
+                    <option value="s" data-i18n="Seconds (s)">
+                      Seconds (s)
+                    </option>
+                  </select></label
+                >
+                <div class="field-pair unit-fields">
+                  <label
+                    ><span data-i18n="CSV thrust">CSV thrust</span
+                    ><select id="source-thrust-unit">
+                      <option>N</option>
+                      <option>kN</option>
+                      <option>kgf</option>
+                      <option>gf</option>
+                      <option>lbf</option>
+                    </select></label
+                  ><label
+                    ><span data-i18n="CSV pressure">CSV pressure</span
+                    ><select id="source-pressure-unit">
+                      <option>bar</option>
+                      <option>Pa</option>
+                      <option>MPa</option>
+                      <option>kPa</option>
+                      <option>psi</option>
+                      <option>atm</option>
+                    </select></label
+                  >
+                </div>
+              </div>
+            </details>
+            <div id="data-summary" class="data-summary" hidden>
+              <div class="section-heading">
+                <h3>
+                  <span data-i18n="Test at a glance">Test at a glance</span>
+                </h3>
+                <span class="status-dot"></span>
+              </div>
+              <dl>
+                <div>
+                  <dt><span data-i18n="Samples">Samples</span></dt>
+                  <dd id="summary-samples">—</dd>
+                </div>
+                <div>
+                  <dt><span data-i18n="Log duration">Log duration</span></dt>
+                  <dd id="summary-duration">—</dd>
+                </div>
+                <div>
+                  <dt><span data-i18n="Peak thrust">Peak thrust</span></dt>
+                  <dd id="summary-thrust">—</dd>
+                </div>
+                <div>
+                  <dt><span data-i18n="Peak pressure">Peak pressure</span></dt>
+                  <dd id="summary-pressure">—</dd>
+                </div>
+                <div>
+                  <dt><span data-i18n="Total impulse">Total impulse</span></dt>
+                  <dd id="summary-impulse">—</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+          <div
+            class="inspector-content"
+            id="panel-overlay"
+            role="tabpanel"
+            aria-labelledby="tab-overlay"
+            hidden
+          >
+            <div class="section-heading">
+              <h2><span data-i18n="Appearance">Appearance</span></h2>
+              <button
+                type="button"
+                class="info-button"
+                data-help="The preview and exported video use the same overlay renderer."
+                aria-label="About the preview"
+                data-i18n-aria-label="About the preview"
+                data-i18n-data-help="The preview and exported video use the same overlay renderer."
+              >
+                i
+              </button>
+              <svg class="icon muted"><use href="#i-sliders" /></svg>
+            </div>
+            <p class="small muted">
+              <span data-i18n="Layout and data display settings."
+                >Layout and data display settings.</span
+              >
+            </p>
+            <div class="info-box" id="details-layout-note" hidden>
+              <svg class="icon"><use href="#i-help" /></svg>
+              <p>
+                <span
+                  data-i18n="Switch to “Full frame + data” in Appearance to include this record in your video."
+                  >Switch to “Full frame + data” in Appearance to include this
+                  record in your video.</span
+                >
+              </p>
+            </div>
+            <div class="section-heading display-unit-heading">
+              <h3><span data-i18n="Video units">Video units</span></h3>
+              <button
+                type="button"
+                class="info-button"
+                data-help="Values, chart scales, peaks, and impulse are converted from the CSV units set in Project. This changes display units only; original timestamps and synchronization stay unchanged."
+                aria-label="About unit conversion"
+                data-i18n-aria-label="About unit conversion"
+                data-i18n-data-help="Values, chart scales, peaks, and impulse are converted from the CSV units set in Project. This changes display units only; original timestamps and synchronization stay unchanged."
+              >
+                i
+              </button>
+            </div>
+            <div class="field-pair unit-fields">
+              <label
+                ><span data-i18n="Thrust unit">Thrust unit</span
+                ><select id="thrust-unit">
+                  <option>N</option>
+                  <option>kN</option>
+                  <option>kgf</option>
+                  <option>gf</option>
+                  <option>lbf</option>
+                </select></label
+              ><label
+                ><span data-i18n="Pressure unit">Pressure unit</span
+                ><select id="pressure-unit">
+                  <option>bar</option>
+                  <option>Pa</option>
+                  <option>MPa</option>
+                  <option>kPa</option>
+                  <option>psi</option>
+                  <option>atm</option>
+                </select></label
+              >
+            </div>
+            <label class="toggle-row"
+              ><span
+                ><b
+                  ><span data-i18n="Show test details"
+                    >Show test details</span
+                  ></b
+                ><small
+                  ><span
+                    data-i18n="Model, results, and source filenames"
+                    >Model, results, and source filenames</span
+                  ></small
+                ></span
+              ><input id="show-details" type="checkbox" checked role="switch"
+            /></label>
+            <label class="field"
+              ><span data-i18n="Side panel values">Side panel values</span
+              ><button
+                type="button"
+                class="info-button"
+                data-help="Live totals show only the impulse and peaks reached at the current video time. They settle on the final results when the log ends."
+                aria-label="About side panel values"
+                data-i18n-aria-label="About side panel values"
+                data-i18n-data-help="Live totals show only the impulse and peaks reached at the current video time. They settle on the final results when the log ends."
+              >
+                i</button
+              ><select id="summary-mode">
+                <option
+                  value="live"
+                  data-i18n="Live totals · accumulate with playback"
+                >
+                  Live totals · accumulate with playback
+                </option>
+                <option value="final" data-i18n="Final results · complete test">
+                  Final results · complete test
+                </option>
+              </select></label
+            >
+
+            <label class="field"
+              ><span data-i18n="Presentation layout">Presentation layout</span
+              ><button
+                type="button"
+                class="info-button"
+                data-help="Full frame keeps the entire image visible. Charts and test details sit outside the footage."
+                aria-label="About presentation layout"
+                data-i18n-aria-label="About presentation layout"
+                data-i18n-data-help="Full frame keeps the entire image visible. Charts and test details sit outside the footage."
+              >
+                i</button
+              ><select id="presentation-layout">
+                <option value="full" data-i18n="Full frame + data">
+                  Full frame + data
+                </option>
+                <option value="overlay" data-i18n="Overlay on footage">
+                  Overlay on footage
+                </option>
+              </select></label
+            >
+
+            <label class="field"
+              ><span data-i18n="Output frame">Output frame</span
+              ><select id="frame-aspect">
+                <option value="source" data-i18n="Match source aspect ratio">
+                  Match source aspect ratio
+                </option>
+                <option value="landscape" data-i18n="16:9 · landscape">
+                  16:9 · landscape
+                </option>
+                <option value="portrait" data-i18n="9:16 · portrait">
+                  9:16 · portrait
+                </option>
+                <option value="square" data-i18n="1:1 · square">
+                  1:1 · square
+                </option>
+              </select></label
+            >
+            <label class="field"
+              ><span data-i18n="Test title">Test title</span
+              ><input
+                id="test-title"
+                type="text"
+                value="STATIC FIRE TEST"
+                maxlength="46"
+                placeholder="e.g. MOTOR A / TEST 004"
+                data-i18n-placeholder="e.g. MOTOR A / TEST 004"
+            /></label>
+            <label class="field"
+              ><span data-i18n="Panel theme">Panel theme</span></label
+            >
+            <div
+              class="segmented"
+              aria-label="Panel theme"
+              data-i18n-aria-label="Panel theme"
+            >
+              <button data-theme="dark" class="selected" aria-pressed="true">
+                <span class="theme-swatch dark"></span
+                ><span data-i18n="Dark">Dark</span></button
+              ><button data-theme="light" aria-pressed="false">
+                <span class="theme-swatch light"></span
+                ><span data-i18n="Light">Light</span>
+              </button>
+            </div>
+            <label class="field range-label" for="overlay-height"
+              ><span data-i18n="Panel height">Panel height</span>
+              <output id="height-value">30%</output></label
+            ><input
+              id="overlay-height"
+              type="range"
+              min="25"
+              max="48"
+              value="30"
+            />
+            <div id="opacity-setting" hidden>
+              <label class="field range-label" for="overlay-opacity"
+                ><span data-i18n="Panel opacity">Panel opacity</span>
+                <output id="opacity-value">90%</output></label
+              ><input
+                id="overlay-opacity"
+                type="range"
+                min="45"
+                max="100"
+                value="90"
+              />
+            </div>
+            <label class="field"
+              ><span data-i18n="Curve display">Curve display</span
+              ><button
+                type="button"
+                class="info-button"
+                data-help="Full curve keeps upcoming data faintly visible. Live trace reveals only recorded time."
+                aria-label="About curve display"
+                data-i18n-aria-label="About curve display"
+                data-i18n-data-help="Full curve keeps upcoming data faintly visible. Live trace reveals only recorded time."
+              >
+                i
+              </button></label
+            >
+            <div class="segmented">
+              <button data-trace="full" class="selected" aria-pressed="true">
+                <span data-i18n="Full curve">Full curve</span></button
+              ><button data-trace="live" aria-pressed="false">
+                <span data-i18n="Live trace">Live trace</span>
+              </button>
+            </div>
+
+            <label class="toggle-row"
+              ><span
+                ><b><span data-i18n="Pressure curve">Pressure curve</span></b
+                ><small
+                  ><span data-i18n="Separate scale and live value"
+                    >Separate scale and live value</span
+                  ></small
+                ></span
+              ><input
+                id="show-pressure"
+                type="checkbox"
+                checked
+                role="switch" /></label
+            ><label class="toggle-row"
+              ><span
+                ><b
+                  ><span data-i18n="Impulse in bottom panel"
+                    >Impulse in bottom panel</span
+                  ></b
+                ><small
+                  ><span data-i18n="Optional duplicate of the side total"
+                    >Optional duplicate of the side total</span
+                  ></small
+                ></span
+              ><input id="show-impulse" type="checkbox" role="switch"
+            /></label>
+          </div>
+          <div
+            class="inspector-content"
+            id="panel-export"
+            role="tabpanel"
+            aria-labelledby="tab-export"
+            hidden
+          >
+            <div class="section-heading">
+              <h2><span data-i18n="Export settings">Export settings</span></h2>
+              <button
+                type="button"
+                class="info-button"
+                data-help="Export requires a browser with WebCodecs. If a codec is unavailable, choose the other format. Large exports need sufficient free memory. Keep this tab open."
+                aria-label="About video export"
+                data-i18n-aria-label="About video export"
+                data-i18n-data-help="Export requires a browser with WebCodecs. If a codec is unavailable, choose the other format. Large exports need sufficient free memory. Keep this tab open."
+              >
+                i
+              </button>
+              <svg class="icon muted"><use href="#i-download" /></svg>
+            </div>
+            <p class="small muted">
+              <span data-i18n="Rendered frame by frame on your device."
+                >Rendered frame by frame on your device.</span
+              >
+            </p>
+            <label class="field"
+              ><span data-i18n="File format">File format</span
+              ><select id="export-format">
+                <option value="mp4">MP4 · H.264</option>
+                <option value="webm">WebM · VP9</option>
+              </select></label
+            >
+            <label class="field"
+              ><span data-i18n="Resolution">Resolution</span
+              ><select id="export-resolution">
+                <option value="1920" data-i18n="Up to 1080p">
+                  Up to 1080p
+                </option>
+                <option value="3840" data-i18n="Up to 4K">Up to 4K</option>
+                <option value="1280" data-i18n="Up to 720p">Up to 720p</option>
+                <option value="0" data-i18n="Original resolution">
+                  Original resolution
+                </option>
+              </select></label
+            >
+            <label class="field"
+              ><span data-i18n="Video quality">Video quality</span
+              ><select id="export-quality">
+                <option value="high" data-i18n="High · recommended">
+                  High · recommended
+                </option>
+                <option value="very-high" data-i18n="Very high">
+                  Very high
+                </option>
+                <option value="medium" data-i18n="Balanced · smaller file">
+                  Balanced · smaller file
+                </option>
+              </select></label
+            >
+            <label class="field"
+              ><span data-i18n="Frame rate">Frame rate</span
+              ><select id="export-fps">
+                <option
+                  value="0"
+                  id="source-fps-option"
+                  data-i18n="Match source · original timestamps"
+                >
+                  Match source · original timestamps
+                </option>
+                <option value="24" data-i18n="24 fps">24 fps</option>
+                <option value="30" data-i18n="30 fps">30 fps</option>
+                <option value="60" data-i18n="60 fps">60 fps</option>
+              </select></label
+            >
+            <label class="toggle-row"
+              ><span
+                ><b
+                  ><span data-i18n="Keep original audio"
+                    >Keep original audio</span
+                  ></b
+                ><small
+                  ><span data-i18n="Trimmed in sync with the video"
+                    >Trimmed in sync with the video</span
+                  ></small
+                ></span
+              ><input id="keep-audio" type="checkbox" checked role="switch"
+            /></label>
+            <div class="export-summary">
+              <div>
+                <span
+                  ><span data-i18n="Selected duration"
+                    >Selected duration</span
+                  ></span
+                ><strong id="export-duration">—</strong>
+              </div>
+              <div>
+                <span><span data-i18n="Output size">Output size</span></span
+                ><strong id="export-dimensions">—</strong>
+              </div>
+              <div>
+                <span><span data-i18n="Presentation">Presentation</span></span
+                ><strong id="export-layout"
+                  ><span data-i18n="Full frame + data"
+                    >Full frame + data</span
+                  ></strong
+                >
+              </div>
+            </div>
+          </div>
+          <div class="inspector-footer">
+            <svg class="icon"><use href="#i-shield" /></svg>
+            <p>
+              <span data-i18n="No uploads. No account."
+                >No uploads. No account.</span
+              ><br /><span data-i18n="Just your browser."
+                >Just your browser.</span
+              >
+            </p>
+          </div>
+        </aside>
+        <section
+          class="editor-column"
+          aria-label="Video editor"
+          data-i18n-aria-label="Video editor"
+        >
+          <div class="preview-workspace" id="preview-workspace">
+            <div class="preview-panel panel">
+              <div class="panel-toolbar">
+                <div>
+                  <span class="status-dot"></span>
+                  <h2><span data-i18n="Live preview">Live preview</span></h2>
+                  <span class="toolbar-divider"></span
+                  ><span id="preview-info"
+                    ><span data-i18n="Waiting for footage"
+                      >Waiting for footage</span
+                    ></span
+                  >
+                </div>
+                <div>
+                  <span class="preview-tag" id="preview-tag"
+                    ><span data-i18n="OVERLAY PREVIEW"
+                      >OVERLAY PREVIEW</span
+                    ></span
+                  ><button
+                    class="icon-button"
+                    id="fullscreen"
+                    aria-label="Full screen preview"
+                    title="Full screen preview"
+                    data-i18n-title="Full screen preview"
+                    data-i18n-aria-label="Full screen preview"
+                  >
+                    <svg class="icon"><use href="#i-expand" /></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="preview-stage" id="preview-stage">
+                <canvas
+                  id="preview"
+                  width="1280"
+                  height="720"
+                  aria-label="Video with synchronized thrust and pressure overlay"
+                  data-i18n-aria-label="Video with synchronized thrust and pressure overlay"
+                ></canvas>
+                <div class="empty-state" id="empty-state">
+                  <div class="empty-icon">
+                    <svg class="icon"><use href="#i-video" /></svg>
+                  </div>
+                  <h3><span data-i18n="Video preview">Video preview</span></h3>
+                  <p>
+                    <span
+                      data-i18n="Choose a local video and its CSV log to begin."
+                      >Choose a local video and its CSV log to begin.</span
+                    >
+                  </p>
+                  <button class="button preview-upload" id="preview-upload">
+                    <svg class="icon"><use href="#i-upload" /></svg
+                    ><span data-i18n="Choose video">Choose video</span>
+                  </button>
+                </div>
+              </div>
+              <div class="transport">
+                <div class="transport-left">
+                  <button
+                    class="icon-button transport-start"
+                    id="jump-start"
+                    aria-label="Go to selected start"
+                    title="Go to selected start (Home)"
+                    disabled
+                    data-i18n-title="Go to selected start (Home)"
+                    data-i18n-aria-label="Go to selected start"
+                  >
+                    <svg class="icon"><use href="#i-start" /></svg>
+                  </button>
+                  <button
+                    class="icon-button"
+                    id="frame-back"
+                    aria-label="Previous frame"
+                    title="Previous frame (Left arrow)"
+                    disabled
+                    data-i18n-title="Previous frame (Left arrow)"
+                    data-i18n-aria-label="Previous frame"
+                  >
+                    <svg class="icon"><use href="#i-back" /></svg></button
+                  ><button
+                    class="play-button"
+                    id="play-button"
+                    aria-label="Play"
+                    title="Play / pause (Space)"
+                    disabled
+                    data-i18n-title="Play / pause (Space)"
+                    data-i18n-aria-label="Play"
+                  >
+                    <svg class="icon"><use href="#i-play" /></svg></button
+                  ><button
+                    class="icon-button"
+                    id="frame-next"
+                    aria-label="Next frame"
+                    title="Next frame (Right arrow)"
+                    disabled
+                    data-i18n-title="Next frame (Right arrow)"
+                    data-i18n-aria-label="Next frame"
+                  >
+                    <svg class="icon"><use href="#i-next" /></svg></button
+                  ><span class="timecode"
+                    ><b id="current-time">00:00.000</b><span>/</span
+                    ><span id="total-time">00:00.000</span></span
+                  >
+                </div>
+                <output id="csv-time-readout" class="csv-time-readout"
+                  >CSV —</output
+                >
+                <div class="transport-right">
+                  <select
+                    id="playback-rate"
+                    aria-label="Playback speed"
+                    data-i18n-aria-label="Playback speed"
+                  >
+                    <option value="0.25">0.25×</option>
+                    <option value="0.5">0.5×</option>
+                    <option value="1" selected>1×</option>
+                    <option value="2">2×</option></select
+                  ><button
+                    class="icon-button"
+                    id="mute-button"
+                    aria-label="Unmute preview"
+                    title="Unmute preview"
+                    data-i18n-title="Unmute preview"
+                    data-i18n-aria-label="Unmute preview"
+                  >
+                    <svg class="icon"><use href="#i-muted" /></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <aside
+              class="video-inspector panel"
+              id="video-inspector"
+              aria-label="Video frame inspector"
+              hidden
+              data-i18n-aria-label="Video frame inspector"
+            >
+              <div class="section-heading">
+                <h2><span data-i18n="Video">Video</span></h2>
+                <button
+                  class="info-button"
+                  data-help="Frame numbers are one-based presentation order. The displayed frame uses its recorded timestamp, including variable frame rate. Capture FPS can differ from playback FPS in slow-motion files."
+                  aria-label="About source frames"
+                  data-i18n-aria-label="About source frames"
+                  data-i18n-data-help="Frame numbers are one-based presentation order. The displayed frame uses its recorded timestamp, including variable frame rate. Capture FPS can differ from playback FPS in slow-motion files."
+                >
+                  i
+                </button>
+              </div>
+              <div class="source-frame">
+                <span><span data-i18n="Source frame">Source frame</span></span
+                ><strong
+                  ><b id="video-frame-number">—</b
+                  ><small>
+                    / <span id="video-frame-count">—</span></small
+                  ></strong
+                >
+              </div>
+              <progress
+                id="frame-progress"
+                max="1"
+                value="0"
+                aria-label="Source frame position"
+                data-i18n-aria-label="Source frame position"
+              ></progress>
+              <div class="source-log-row">
+                <span
+                  ><span data-i18n="CSV row">CSV row</span
+                  ><button
+                    type="button"
+                    class="info-button"
+                    data-help="Physical line numbers in the original file, including the header and comments. Between samples, both surrounding rows and the interpolation percentage are shown. Video frames and logger rows are matched by time, so their rates may differ. Gaps are not interpolated."
+                    aria-label="About CSV rows"
+                    data-i18n-aria-label="About CSV rows"
+                    data-i18n-data-help="Physical line numbers in the original file, including the header and comments. Between samples, both surrounding rows and the interpolation percentage are shown. Video frames and logger rows are matched by time, so their rates may differ. Gaps are not interpolated."
+                  >
+                    i
+                  </button></span
+                >
+                <strong id="video-log-row">—</strong>
+                <small id="video-log-status"
+                  ><span data-i18n="No CSV loaded">No CSV loaded</span></small
+                >
+                <small id="video-log-time">—</small>
+              </div>
+              <dl class="video-frame-data">
+                <div>
+                  <dt><span data-i18n="Frame time">Frame time</span></dt>
+                  <dd id="video-frame-time">—</dd>
+                </div>
+                <div>
+                  <dt>
+                    <span data-i18n="Frame interval">Frame interval</span>
+                  </dt>
+                  <dd id="video-frame-interval">—</dd>
+                </div>
+                <div>
+                  <dt><span data-i18n="Playback">Playback</span></dt>
+                  <dd id="timing-video-rate">—</dd>
+                </div>
+                <div>
+                  <dt><span data-i18n="Resolution">Resolution</span></dt>
+                  <dd id="video-resolution">—</dd>
+                </div>
+                <div>
+                  <dt><span data-i18n="CSV rate">CSV rate</span></dt>
+                  <dd id="timing-log-rate">—</dd>
+                </div>
+              </dl>
+              <div class="frame-trim-actions">
+                <button
+                  class="set-marker"
+                  id="frame-set-in"
+                  title="Set In at the displayed frame"
+                  disabled
+                  data-i18n-title="Set In at the displayed frame"
+                >
+                  <span data-i18n="Set In">Set In</span></button
+                ><button
+                  class="set-marker"
+                  id="frame-set-out"
+                  title="Set Out after the displayed frame, including it"
+                  disabled
+                  data-i18n-title="Set Out after the displayed frame, including it"
+                >
+                  <span data-i18n="Set Out">Set Out</span>
+                </button>
+              </div>
+              <div class="selected-frames">
+                <span
+                  ><span data-i18n="Selected frames"
+                    >Selected frames</span
+                  ></span
+                ><strong id="video-selected-frames">—</strong>
+              </div>
+              <details class="disclosure">
+                <summary>
+                  <span data-i18n="Source details">Source details</span>
+                </summary>
+                <div class="disclosure-body">
+                  <dl>
+                    <div>
+                      <dt><span data-i18n="File">File</span></dt>
+                      <dd id="video-source-name">—</dd>
+                    </div>
+                    <div>
+                      <dt><span data-i18n="Size">Size</span></dt>
+                      <dd id="video-file-size">—</dd>
+                    </div>
+                    <div>
+                      <dt><span data-i18n="Codec">Codec</span></dt>
+                      <dd id="video-codec">—</dd>
+                    </div>
+                    <div>
+                      <dt><span data-i18n="Duration">Duration</span></dt>
+                      <dd id="video-source-duration">—</dd>
+                    </div>
+                  </dl>
+                  <p id="timing-video-detail" class="small muted"></p>
+                  <p id="timing-log-detail" class="small muted"></p>
+                </div>
+              </details>
+            </aside>
+          </div>
+          <div class="workbench panel">
+            <div
+              class="tabs"
+              id="analysis-tabs"
+              role="tablist"
+              aria-label="Analysis tools"
+              data-i18n-aria-label="Analysis tools"
+            >
+              <button
+                class="tab active"
+                id="tool-timeline"
+                role="tab"
+                aria-selected="true"
+                aria-controls="timeline-panel"
+                data-tool="timeline"
+              >
+                <span data-i18n="Sync &amp; trim">Sync &amp; trim</span>
+              </button>
+              <button
+                class="tab"
+                id="tool-measurement"
+                role="tab"
+                aria-selected="false"
+                aria-controls="measurement-panel"
+                data-tool="measurement"
+                tabindex="-1"
+              >
+                <span data-i18n="Measure telemetry">Measure telemetry</span>
+              </button>
+            </div>
+            <section
+              class="timeline-panel"
+              id="timeline-panel"
+              role="tabpanel"
+              aria-labelledby="tool-timeline"
+            >
+              <div class="section-heading">
+                <div class="heading-with-icon">
+                  <svg class="icon"><use href="#i-sliders" /></svg>
+                  <h2 data-i18n="Trim &amp; synchronize">
+                    Trim &amp; synchronize
+                  </h2>
+                </div>
+                <button
+                  class="text-button"
+                  id="reset-timeline"
+                  title="Reset trim and synchronization. This can be undone."
+                  data-i18n-title="Reset trim and synchronization. This can be undone."
+                  disabled
+                >
+                  <svg class="icon"><use href="#i-reset" /></svg
+                  ><span data-i18n="Reset edits">Reset edits</span>
+                </button>
+              </div>
+              <div class="sync-block">
+                <div class="sync-heading">
+                  <div>
+                    <h3>
+                      <span data-i18n="Match the ignition"
+                        >Match the ignition</span
+                      >
+                    </h3>
+                    <p>
+                      <span
+                        data-i18n="Pause on ignition, then align. Drag the CSV track to fine-tune."
+                        >Pause on ignition, then align. Drag the CSV track to
+                        fine-tune.</span
+                      >
+                    </p>
+                  </div>
+                  <button
+                    class="button secondary"
+                    id="align-ignition"
+                    title="Align CSV ignition with the playhead (S)"
+                    disabled
+                    data-i18n-title="Align CSV ignition with the playhead (S)"
+                  >
+                    <svg class="icon"><use href="#i-target" /></svg
+                    ><span data-i18n="Align ignition here"
+                      >Align ignition here</span
+                    >
+                  </button>
+                </div>
+                <details class="disclosure sync-adjustments">
+                  <summary>
+                    <span data-i18n="Fine synchronization"
+                      >Fine synchronization</span
+                    >
+                    <span id="sync-readout"
+                      ><span data-i18n="Offset 0.000 s"
+                        >Offset 0.000 s</span
+                      ></span
+                    >
+                  </summary>
+                  <div class="disclosure-body">
+                    <div class="sync-controls">
+                      <label
+                        ><span data-i18n="CSV anchor (ignition)"
+                          >CSV anchor (ignition)</span
+                        >
+                        <div class="input-with-unit">
+                          <input
+                            id="csv-anchor"
+                            aria-errormessage="sync-anchor-error"
+                            type="number"
+                            step="0.000001"
+                            value="0.000"
+                            min="0"
+                            disabled
+                          /><span><span data-i18n="s">s</span></span>
+                        </div></label
+                      >
+                      <div class="offset-control">
+                        <label for="sync-offset"
+                          ><span data-i18n="Offset · CSV zero in video"
+                            >Offset · CSV zero in video</span
+                          ></label
+                        >
+                        <div class="offset-buttons">
+                          <button
+                            id="offset-minus"
+                            aria-label="Move CSV earlier by 10 milliseconds"
+                            disabled
+                            data-i18n-aria-label="Move CSV earlier by 10 milliseconds"
+                          >
+                            −
+                          </button>
+                          <div class="input-with-unit">
+                            <input
+                              id="sync-offset"
+                              type="number"
+                              step="0.000001"
+                              value="0.000"
+                              disabled
+                            /><span><span data-i18n="s">s</span></span>
+                          </div>
+                          <button
+                            id="offset-plus"
+                            aria-label="Move CSV later by 10 milliseconds"
+                            disabled
+                            data-i18n-aria-label="Move CSV later by 10 milliseconds"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      <span class="sync-hint"
+                        ><span class="legend-line"></span
+                        ><span data-i18n="Drag the CSV track to fine-tune."
+                          >Drag the CSV track to fine-tune.</span
+                        ><br /><span
+                          data-i18n="Positive offset moves data later."
+                          >Positive offset moves data later.</span
+                        ></span
+                      >
+                    </div>
+                  </div>
+                </details>
+              </div>
+              <p
+                id="sync-anchor-error"
+                class="alignment-status error"
+                role="status"
+                hidden
+              ></p>
+              <div
+                class="timeline-edit-toolbar"
+                role="group"
+                aria-label="Timeline tools"
+                data-i18n-aria-label="Timeline tools"
+              >
+                <div class="timeline-tool-group">
+                  <button
+                    id="timeline-undo"
+                    class="timeline-tool icon-only"
+                    aria-label="Undo edit"
+                    data-i18n-aria-label="Undo edit"
+                    title="Undo edit (Ctrl/Cmd+Z)"
+                    data-i18n-title="Undo edit (Ctrl/Cmd+Z)"
+                    disabled
+                  >
+                    <svg class="icon"><use href="#i-undo" /></svg>
+                  </button>
+                  <button
+                    id="timeline-redo"
+                    class="timeline-tool icon-only"
+                    aria-label="Redo edit"
+                    data-i18n-aria-label="Redo edit"
+                    title="Redo edit (Ctrl/Cmd+Shift+Z)"
+                    data-i18n-title="Redo edit (Ctrl/Cmd+Shift+Z)"
+                    disabled
+                  >
+                    <svg class="icon"><use href="#i-redo" /></svg>
+                  </button>
+                </div>
+                <div class="timeline-tool-group">
+                  <button
+                    id="timeline-snap"
+                    class="timeline-tool"
+                    aria-pressed="true"
+                    title="Snap edits to frames and nearby events. Hold Alt to bypass."
+                    data-i18n-title="Snap edits to frames and nearby events. Hold Alt to bypass."
+                    disabled
+                  >
+                    <svg class="icon"><use href="#i-snap" /></svg
+                    ><span data-i18n="Snap">Snap</span>
+                  </button>
+                  <button
+                    id="timeline-loop"
+                    class="timeline-tool"
+                    aria-pressed="false"
+                    title="Loop the selected video range"
+                    data-i18n-title="Loop the selected video range"
+                    disabled
+                  >
+                    <svg class="icon"><use href="#i-loop" /></svg
+                    ><span data-i18n="Loop">Loop</span>
+                  </button>
+                </div>
+                <div class="timeline-tool-group timeline-zoom-tools">
+                  <button
+                    id="timeline-zoom-out"
+                    class="timeline-tool icon-only"
+                    aria-label="Zoom out"
+                    data-i18n-aria-label="Zoom out"
+                    title="Zoom out (-)"
+                    data-i18n-title="Zoom out (-)"
+                    disabled
+                  >
+                    −
+                  </button>
+                  <output
+                    id="timeline-zoom-value"
+                    aria-label="Timeline zoom"
+                    data-i18n-aria-label="Timeline zoom"
+                    >1.0×</output
+                  >
+                  <button
+                    id="timeline-zoom-in"
+                    class="timeline-tool icon-only"
+                    aria-label="Zoom in"
+                    data-i18n-aria-label="Zoom in"
+                    title="Zoom in (+)"
+                    data-i18n-title="Zoom in (+)"
+                    disabled
+                  >
+                    +
+                  </button>
+                  <button
+                    id="timeline-fit"
+                    class="timeline-tool"
+                    title="Fit the entire source video in the timeline (\)"
+                    data-i18n-title="Fit the entire source video in the timeline (\)"
+                    disabled
+                  >
+                    <span data-i18n="Fit video">Fit video</span>
+                  </button>
+                  <button
+                    id="timeline-fit-selection"
+                    class="timeline-tool"
+                    title="Fit the selected range in the timeline (F)"
+                    data-i18n-title="Fit the selected range in the timeline (F)"
+                    disabled
+                  >
+                    <span data-i18n="Fit selection">Fit selection</span>
+                  </button>
+                  <button
+                    class="info-button"
+                    type="button"
+                    aria-label="About timeline editing"
+                    data-i18n-aria-label="About timeline editing"
+                    data-help="Drag the video edges to trim. Drag CSV to shift it. Zoom for frame-level edits; Fit selection shows the chosen range. Alt temporarily bypasses snapping. Undo restores one complete drag. Escape cancels an active drag. Shift+arrows steps ten frames. Zoom and scrolling do not change the exported video."
+                    data-i18n-data-help="Drag the video edges to trim. Drag CSV to shift it. Zoom for frame-level edits; Fit selection shows the chosen range. Alt temporarily bypasses snapping. Undo restores one complete drag. Escape cancels an active drag. Shift+arrows steps ten frames. Zoom and scrolling do not change the exported video."
+                  >
+                    i
+                  </button>
+                </div>
+              </div>
+              <div class="scrubber-row">
+                <label class="track-label" for="scrubber"
+                  ><span><span data-i18n="PLAYHEAD">PLAYHEAD</span></span
+                  ><output id="scrubber-time"
+                    ><span data-i18n="0.000 s">0.000 s</span></output
+                  ></label
+                >
+                <div class="scrubber-rail" id="scrubber-rail">
+                  <input
+                    id="scrubber"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.000001"
+                    value="0"
+                    aria-label="Video playhead"
+                    disabled
+                    data-i18n-aria-label="Video playhead"
+                  />
+                </div>
+              </div>
+              <div class="timeline-tracks" id="timeline-tracks">
+                <div class="track-labels">
+                  <span
+                    ><svg class="icon"><use href="#i-video" /></svg
+                    ><span data-i18n="VIDEO">VIDEO</span></span
+                  ><span
+                    ><svg class="icon"><use href="#i-chart" /></svg
+                    ><span data-i18n="CSV LOG">CSV LOG</span></span
+                  >
+                </div>
+                <div class="tracks-body" id="tracks-body">
+                  <div class="video-track" id="video-track">
+                    <div class="trim-selection" id="trim-selection">
+                      <span
+                        class="trim-handle left"
+                        id="trim-handle-start"
+                        role="slider"
+                        tabindex="0"
+                        aria-label="Trim start"
+                        aria-valuemin="0"
+                        aria-valuemax="1"
+                        aria-valuenow="0"
+                        data-i18n-aria-label="Trim start"
+                      ></span
+                      ><span id="video-track-name"
+                        ><span data-i18n="No video loaded"
+                          >No video loaded</span
+                        ></span
+                      ><span
+                        class="trim-handle right"
+                        id="trim-handle-end"
+                        role="slider"
+                        tabindex="0"
+                        aria-label="Trim end"
+                        aria-valuemin="0"
+                        aria-valuemax="1"
+                        aria-valuenow="1"
+                        data-i18n-aria-label="Trim end"
+                      ></span>
+                    </div>
+                  </div>
+                  <div
+                    class="csv-track"
+                    id="csv-track"
+                    tabindex="0"
+                    role="slider"
+                    aria-label="Telemetry offset"
+                    aria-valuemin="-3600"
+                    aria-valuemax="3600"
+                    aria-valuenow="0"
+                    data-i18n-aria-label="Telemetry offset"
+                  >
+                    <canvas id="track-curve" width="1000" height="42"></canvas
+                    ><span id="csv-track-name"
+                      ><span data-i18n="No CSV loaded"
+                        >No CSV loaded</span
+                      ></span
+                    >
+                    <button
+                      id="stretch-handle"
+                      class="stretch-handle"
+                      aria-label="Stretch telemetry duration"
+                      title="Drag to stretch telemetry; CSV start stays fixed"
+                      hidden
+                      disabled
+                      data-i18n-title="Drag to stretch telemetry; CSV start stays fixed"
+                      data-i18n-aria-label="Stretch telemetry duration"
+                    >
+                      ↔
+                    </button>
+                  </div>
+                  <div class="timeline-playhead" id="timeline-playhead"></div>
+                  <div
+                    id="timeline-snap-line"
+                    class="timeline-snap-line"
+                    hidden
+                  ></div>
+                  <div
+                    class="timeline-ignition"
+                    id="timeline-ignition"
+                    title="Detected CSV ignition"
+                    hidden
+                    data-i18n-title="Detected CSV ignition"
+                  ></div>
+                  <div class="timeline-ticks" id="timeline-ticks">
+                    <span>0.0s</span><span>—</span><span>—</span><span>—</span
+                    ><span>—</span>
+                  </div>
+                </div>
+              </div>
+              <div class="timeline-navigation" id="timeline-navigation" hidden>
+                <output
+                  id="timeline-viewport-label"
+                  aria-label="Visible time range"
+                  data-i18n-aria-label="Visible time range"
+                  aria-live="off"
+                ></output>
+                <input
+                  type="range"
+                  id="timeline-scroll"
+                  min="0"
+                  max="0"
+                  step="0.000001"
+                  value="0"
+                  aria-label="Scroll timeline"
+                  data-i18n-aria-label="Scroll timeline"
+                />
+              </div>
+              <div class="trim-controls">
+                <label
+                  ><span data-i18n="In">In</span>
+                  <div class="input-with-unit">
+                    <input
+                      id="trim-start"
+                      aria-label="Trim start in seconds"
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value="0.000"
+                      disabled
+                      data-i18n-aria-label="Trim start in seconds"
+                    /><span><span data-i18n="s">s</span></span>
+                  </div></label
+                ><button
+                  class="set-marker"
+                  id="set-in"
+                  title="Set trim start at playhead"
+                  disabled
+                  data-i18n-title="Set trim start at playhead"
+                >
+                  <span data-i18n="Set at playhead"
+                    >Set at playhead</span
+                  ></button
+                ><span class="trim-controls-divider"></span
+                ><label
+                  ><span data-i18n="Out">Out</span>
+                  <div class="input-with-unit">
+                    <input
+                      id="trim-end"
+                      aria-label="Trim end in seconds"
+                      type="number"
+                      min="0.001"
+                      step="0.001"
+                      value="0.000"
+                      disabled
+                      data-i18n-aria-label="Trim end in seconds"
+                    /><span><span data-i18n="s">s</span></span>
+                  </div></label
+                ><button
+                  class="set-marker"
+                  id="set-out"
+                  title="Set trim end at playhead"
+                  disabled
+                  data-i18n-title="Set trim end at playhead"
+                >
+                  <span data-i18n="Set at playhead"
+                    >Set at playhead</span
+                  ></button
+                ><button
+                  class="text-button"
+                  id="clear-trim"
+                  title="Restore the full video range without changing synchronization"
+                  data-i18n-title="Restore the full video range without changing synchronization"
+                  disabled
+                >
+                  <span data-i18n="Clear trim">Clear trim</span></button
+                ><span class="duration-pill" id="trim-duration"
+                  ><span data-i18n="0.000 s selected"
+                    >0.000 s selected</span
+                  ></span
+                >
+              </div>
+              <details
+                class="disclosure analysis-controls"
+                id="analysis-controls"
+              >
+                <summary>
+                  <span data-i18n="Advanced · telemetry time stretch"
+                    >Advanced · telemetry time stretch</span
+                  ><button
+                    type="button"
+                    class="info-button"
+                    data-help="For analysis of mismatched recordings. Only telemetry timing changes; video, audio, sensor values, and impulse stay original. Exports label any time stretch."
+                    aria-label="About time stretch"
+                    data-i18n-aria-label="About time stretch"
+                    data-i18n-data-help="For analysis of mismatched recordings. Only telemetry timing changes; video, audio, sensor values, and impulse stay original. Exports label any time stretch."
+                  >
+                    i
+                  </button>
+                  <span id="stretch-badge"
+                    ><span data-i18n="100% · original timing"
+                      >100% · original timing</span
+                    ></span
+                  >
+                </summary>
+                <div class="disclosure-body">
+                  <div class="end-alignment">
+                    <div class="section-heading">
+                      <h3>
+                        <span data-i18n="Align the end">Align the end</span>
+                      </h3>
+                      <button
+                        type="button"
+                        class="info-button"
+                        data-help="Align ignition first, then pause at the matching end event in the video. This calculates Telemetry duration while keeping the aligned ignition fixed."
+                        aria-label="About aligning the end"
+                        data-i18n-aria-label="About aligning the end"
+                        data-i18n-data-help="Align ignition first, then pause at the matching end event in the video. This calculates Telemetry duration while keeping the aligned ignition fixed."
+                      >
+                        i
+                      </button>
+                      <span class="tag"
+                        ><span data-i18n="KEEP START FIXED"
+                          >KEEP START FIXED</span
+                        ></span
+                      >
+                    </div>
+
+                    <div class="alignment-start">
+                      <span
+                        ><span data-i18n="Aligned ignition:"
+                          >Aligned ignition:</span
+                        >
+                        <strong id="aligned-start-time">—</strong></span
+                      ><button id="jump-alignment" class="text-button" disabled>
+                        <span data-i18n="Go to aligned ignition"
+                          >Go to aligned ignition</span
+                        >
+                      </button>
+                    </div>
+                    <div class="end-alignment-controls">
+                      <label
+                        ><span data-i18n="CSV end event">CSV end event</span
+                        ><button
+                          type="button"
+                          class="info-button"
+                          data-help="The end event defaults to the last CSV sample. Enter the burnout time instead if your log continues after the burn."
+                          aria-label="About CSV end event"
+                          data-i18n-aria-label="About CSV end event"
+                          data-i18n-data-help="The end event defaults to the last CSV sample. Enter the burnout time instead if your log continues after the burn."
+                        >
+                          i
+                        </button>
+                        <div class="input-with-unit">
+                          <input
+                            id="csv-end-anchor"
+                            type="number"
+                            step="0.000001"
+                            min="0"
+                            value="0.000"
+                            disabled
+                          /><span><span data-i18n="s">s</span></span>
+                        </div></label
+                      >
+                      <button id="align-end" class="button secondary" disabled>
+                        <svg class="icon"><use href="#i-target" /></svg
+                        ><span data-i18n="Align end here">Align end here</span>
+                      </button>
+                    </div>
+
+                    <p
+                      id="end-alignment-status"
+                      class="alignment-status"
+                      role="status"
+                      aria-live="polite"
+                    ></p>
+                  </div>
+
+                  <div class="stretch-controls">
+                    <label
+                      ><span data-i18n="Telemetry duration"
+                        >Telemetry duration</span
+                      ><button
+                        type="button"
+                        class="info-button"
+                        data-help="Changing the percentage keeps the ignition marker fixed. Drag the right edge of the CSV track to keep its start fixed instead."
+                        aria-label="About duration adjustment"
+                        data-i18n-aria-label="About duration adjustment"
+                        data-i18n-data-help="Changing the percentage keeps the ignition marker fixed. Drag the right edge of the CSV track to keep its start fixed instead."
+                      >
+                        i
+                      </button>
+                      <div class="input-with-unit">
+                        <input
+                          id="stretch-percent"
+                          type="number"
+                          min="10"
+                          max="1000"
+                          step="0.001"
+                          value="100.000"
+                          disabled
+                        /><span>%</span>
+                      </div></label
+                    >
+                    <div class="stretch-description">
+                      <strong id="telemetry-duration"
+                        ><span data-i18n="No CSV loaded"
+                          >No CSV loaded</span
+                        ></strong
+                      ><span
+                        ><span
+                          data-i18n="100% = original · 200% = twice as long"
+                          >100% = original · 200% = twice as long</span
+                        ></span
+                      >
+                    </div>
+                    <button id="reset-stretch" class="text-button" disabled>
+                      <span data-i18n="Reset to 100%">Reset to 100%</span>
+                    </button>
+                  </div>
+
+                  <details class="disclosure" id="two-point-controls">
+                    <summary>
+                      <span data-i18n="Match two events">Match two events</span
+                      ><button
+                        type="button"
+                        class="info-button"
+                        data-help="Capture the same two events in the CSV and video. Compare their elapsed intervals, then fit both points. A 200% ratio means one CSV second spans two playback seconds. This can reflect logger timing errors or slow-motion recording; FPS alone cannot identify the cause. A linear fit corrects constant clock scale and offset, not missing data or changing drift."
+                        aria-label="About matching events"
+                        data-i18n-aria-label="About matching events"
+                        data-i18n-data-help="Capture the same two events in the CSV and video. Compare their elapsed intervals, then fit both points. A 200% ratio means one CSV second spans two playback seconds. This can reflect logger timing errors or slow-motion recording; FPS alone cannot identify the cause. A linear fit corrects constant clock scale and offset, not missing data or changing drift."
+                      >
+                        i
+                      </button>
+                      <span
+                        ><span data-i18n="Correct clock drift"
+                          >Correct clock drift</span
+                        ></span
+                      >
+                    </summary>
+                    <div class="disclosure-body">
+                      <div class="anchor-grid">
+                        <span><span data-i18n="Event">Event</span></span
+                        ><span
+                          ><span data-i18n="CSV time (s)"
+                            >CSV time (s)</span
+                          ></span
+                        ><span
+                          ><span data-i18n="Video time (s)"
+                            >Video time (s)</span
+                          ></span
+                        ><span></span> <strong>A</strong
+                        ><input
+                          id="point-a-csv"
+                          aria-label="Event A CSV time"
+                          type="number"
+                          step="0.000001"
+                          min="0"
+                          disabled
+                          data-i18n-aria-label="Event A CSV time"
+                        /><input
+                          id="point-a-video"
+                          aria-label="Event A video time"
+                          type="number"
+                          step="0.000001"
+                          min="0"
+                          disabled
+                          data-i18n-aria-label="Event A video time"
+                        /><button id="capture-a" class="set-marker" disabled>
+                          <span data-i18n="Use playhead">Use playhead</span>
+                        </button>
+                        <strong>B</strong
+                        ><input
+                          id="point-b-csv"
+                          aria-label="Event B CSV time"
+                          type="number"
+                          step="0.000001"
+                          min="0"
+                          disabled
+                          data-i18n-aria-label="Event B CSV time"
+                        /><input
+                          id="point-b-video"
+                          aria-label="Event B video time"
+                          type="number"
+                          step="0.000001"
+                          min="0"
+                          disabled
+                          data-i18n-aria-label="Event B video time"
+                        /><button id="capture-b" class="set-marker" disabled>
+                          <span data-i18n="Use playhead">Use playhead</span>
+                        </button>
+                      </div>
+                      <dl
+                        class="clock-comparison"
+                        id="clock-comparison"
+                        aria-label="Selected event intervals"
+                        hidden
+                        data-i18n-aria-label="Selected event intervals"
+                      >
+                        <div>
+                          <dt>
+                            <span data-i18n="CSV interval">CSV interval</span>
+                          </dt>
+                          <dd id="clock-csv-interval">—</dd>
+                        </div>
+                        <div>
+                          <dt>
+                            <span data-i18n="Video interval"
+                              >Video interval</span
+                            >
+                          </dt>
+                          <dd id="clock-video-interval">—</dd>
+                        </div>
+                        <div>
+                          <dt>
+                            <span data-i18n="Required duration"
+                              >Required duration</span
+                            >
+                          </dt>
+                          <dd id="clock-required-scale">—</dd>
+                        </div>
+                      </dl>
+                      <div class="fit-actions">
+                        <button
+                          id="fit-events"
+                          class="button secondary"
+                          disabled
+                        >
+                          <span data-i18n="Fit both events"
+                            >Fit both events</span
+                          ></button
+                        ><span
+                          id="fit-status"
+                          class="small muted"
+                          role="status"
+                        ></span>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </details>
+            </section>
+            <section
+              class="measurement-panel"
+              id="measurement-panel"
+              role="tabpanel"
+              aria-labelledby="tool-measurement"
+              hidden
+            >
+              <div class="section-heading">
+                <h2><span data-i18n="Burn interval">Burn interval</span></h2>
+                <button
+                  type="button"
+                  class="info-button"
+                  data-help="Drag A and B from the thrust rise to its decay. Click the curve to move the nearest marker, or enter exact CSV times below."
+                  aria-label="About measuring burn duration"
+                  data-i18n-aria-label="About measuring burn duration"
+                  data-i18n-data-help="Drag A and B from the thrust rise to its decay. Click the curve to move the nearest marker, or enter exact CSV times below."
+                >
+                  i</button
+                ><span id="measurement-summary"
+                  ><span data-i18n="Load a CSV log">Load a CSV log</span></span
+                >
+              </div>
+              <div class="disclosure-body">
+                <div class="measurement-legend">
+                  <span
+                    ><i class="legend-dot thrust"></i
+                    ><span data-i18n="Thrust">Thrust</span></span
+                  ><span
+                    ><i class="legend-dot pressure"></i
+                    ><span data-i18n="Pressure">Pressure</span></span
+                  ><span
+                    ><span data-i18n="Original CSV time"
+                      >Original CSV time</span
+                    ></span
+                  >
+                </div>
+                <div class="measurement-plot" id="measurement-plot">
+                  <canvas
+                    id="measurement-chart"
+                    width="1000"
+                    height="230"
+                    aria-label="Telemetry chart with draggable start and end measurement markers"
+                    data-i18n-aria-label="Telemetry chart with draggable start and end measurement markers"
+                  ></canvas>
+                  <button
+                    class="measurement-marker"
+                    id="measure-marker-start"
+                    data-measure-marker="start"
+                    role="slider"
+                    aria-label="Measurement start A"
+                    aria-valuemin="0"
+                    aria-valuemax="1"
+                    aria-valuenow="0"
+                    hidden
+                    disabled
+                    data-i18n-aria-label="Measurement start A"
+                  >
+                    A
+                  </button>
+                  <button
+                    class="measurement-marker"
+                    id="measure-marker-end"
+                    data-measure-marker="end"
+                    role="slider"
+                    aria-label="Measurement end B"
+                    aria-valuemin="0"
+                    aria-valuemax="1"
+                    aria-valuenow="1"
+                    hidden
+                    disabled
+                    data-i18n-aria-label="Measurement end B"
+                  >
+                    B
+                  </button>
+                </div>
+                <div class="measurement-values">
+                  <label
+                    ><span data-i18n="Start A · CSV time"
+                      >Start A · CSV time</span
+                    >
+                    <div class="input-with-unit">
+                      <input
+                        id="measure-start"
+                        type="number"
+                        step="any"
+                        aria-label="Measurement start in CSV seconds"
+                        disabled
+                        data-i18n-aria-label="Measurement start in CSV seconds"
+                      /><span><span data-i18n="s">s</span></span>
+                    </div></label
+                  >
+                  <label
+                    ><span data-i18n="End B · CSV time">End B · CSV time</span>
+                    <div class="input-with-unit">
+                      <input
+                        id="measure-end"
+                        type="number"
+                        step="any"
+                        aria-label="Measurement end in CSV seconds"
+                        disabled
+                        data-i18n-aria-label="Measurement end in CSV seconds"
+                      /><span><span data-i18n="s">s</span></span>
+                    </div></label
+                  >
+                  <div class="measurement-result">
+                    <span
+                      ><span data-i18n="Burn interval · CSV"
+                        >Burn interval · CSV</span
+                      ></span
+                    ><strong id="measure-duration">—</strong
+                    ><small id="measurement-origin"
+                      ><span data-i18n="Set start and end markers"
+                        >Set start and end markers</span
+                      ></small
+                    >
+                  </div>
+                  <div
+                    class="measurement-result"
+                    id="measure-video-result"
+                    hidden
+                  >
+                    <span
+                      ><span data-i18n="Interval on video"
+                        >Interval on video</span
+                      ></span
+                    ><strong id="measure-video-duration">—</strong
+                    ><small
+                      ><span data-i18n="Includes telemetry time stretch"
+                        >Includes telemetry time stretch</span
+                      ></small
+                    >
+                  </div>
+                </div>
+                <div class="measurement-actions">
+                  <label
+                    ><span data-i18n="Detection threshold"
+                      >Detection threshold</span
+                    >
+                    <div class="input-with-unit">
+                      <input
+                        id="measure-threshold"
+                        type="number"
+                        min="0.1"
+                        max="99.9"
+                        step="0.1"
+                        value="5"
+                        aria-label="Burn detection threshold percent"
+                        data-i18n-aria-label="Burn detection threshold percent"
+                      /><span>%</span>
+                    </div>
+                    <span class="muted"
+                      ><span data-i18n="of peak thrust"
+                        >of peak thrust</span
+                      ></span
+                    ></label
+                  >
+                  <button id="measure-detect" class="button secondary" disabled>
+                    <span data-i18n="Detect burn">Detect burn</span>
+                  </button>
+                  <button
+                    id="measure-use-sync"
+                    class="button secondary"
+                    disabled
+                  >
+                    <span data-i18n="Use A/B as sync events"
+                      >Use A/B as sync events</span
+                    >
+                  </button>
+                </div>
+                <p
+                  id="measurement-status"
+                  class="measurement-status small muted"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span data-i18n="Load a CSV log to measure thrust duration."
+                    >Load a CSV log to measure thrust duration.</span
+                  >
+                </p>
+                <label class="measurement-export"
+                  ><input id="show-measurement" type="checkbox" disabled /><span
+                    data-i18n="Show measured interval in the video"
+                    >Show measured interval in the video</span
+                  ></label
+                >
+              </div>
+            </section>
+          </div>
+          <section class="save-panel panel" aria-labelledby="save-title">
+            <div class="save-panel-copy">
+              <h2 id="save-title">
+                <span data-i18n="Save your video">Save your video</span>
+              </h2>
+              <p id="save-status" role="status" aria-live="polite">
+                <span data-i18n="Add a video and CSV log to enable saving."
+                  >Add a video and CSV log to enable saving.</span
+                >
+              </p>
+              <a id="download-again" class="text-button download-link" hidden
+                ><span data-i18n="Download the last video again ↗"
+                  >Download the last video again ↗</span
+                ></a
+              >
+            </div>
+            <div class="save-panel-actions">
+              <button id="save-settings" class="button secondary">
+                <span data-i18n="Format &amp; quality"
+                  >Format &amp; quality</span
+                ></button
+              ><button
+                id="save-video"
+                class="button primary"
+                data-save-video
+                aria-describedby="save-status"
+                disabled
+              >
+                <svg class="icon"><use href="#i-download" /></svg
+                ><span data-i18n="Save video">Save video</span>
+              </button>
+            </div>
+          </section>
+          <div class="editor-bottom">
+            <span
+              ><span class="legend-dot thrust"></span
+              ><span data-i18n="Thrust">Thrust</span
+              ><span class="legend-dot pressure"></span
+              ><span data-i18n="Pressure">Pressure</span
+              ><span class="legend-dot ignition"></span
+              ><span data-i18n="Ignition">Ignition</span></span
+            ><span
+              ><kbd>Home</kbd> <span data-i18n="Start">Start</span>
+              <kbd>Space</kbd> <span data-i18n="Play">Play</span> <kbd>←</kbd
+              ><kbd>→</kbd> <span data-i18n="Frame">Frame</span> <kbd>I</kbd
+              ><kbd>O</kbd> <span data-i18n="Trim">Trim</span> <kbd>S</kbd>
+              <span data-i18n="Sync">Sync</span></span
+            ><button class="text-button" id="go-export">
+              <span data-i18n="Appearance &amp; layout"
+                >Appearance &amp; layout</span
+              >
+              <svg class="icon"><use href="#i-arrow" /></svg>
+            </button>
+          </div>
+        </section>
+      </div>
+      <footer class="site-footer">
+        <span
+          >FLAMESYNC <span class="footer-separator">/</span>
+          <span data-i18n="Local video and telemetry editor."
+            >Local video and telemetry editor.</span
+          ></span
+        ><span
+          ><span data-i18n="PRIVATE BY DESIGN">PRIVATE BY DESIGN</span>
+          <svg class="icon"><use href="#i-shield" /></svg
+        ></span>
+      </footer>
+    </main>
+    <video id="source-video" playsinline muted preload="auto" hidden></video>
+    <dialog id="export-dialog" aria-labelledby="export-dialog-title">
+      <div class="dialog-symbol">
+        <svg class="icon"><use href="#i-download" /></svg>
+      </div>
+      <h2 id="export-dialog-title">
+        <span data-i18n="Rendering your video">Rendering your video</span>
+      </h2>
+      <p id="export-status">
+        <span data-i18n="Preparing the encoder…">Preparing the encoder…</span>
+      </p>
+      <progress id="export-progress" max="1" value="0"></progress>
+      <div class="progress-details">
+        <strong id="export-percent">0%</strong
+        ><span id="export-elapsed"
+          ><span data-i18n="Processing locally">Processing locally</span></span
+        >
+      </div>
+      <p class="small muted">
+        <span
+          data-i18n="Keep this tab open. Your source files never leave your device."
+          >Keep this tab open. Your source files never leave your device.</span
+        >
+      </p>
+      <button id="cancel-export" class="button secondary full-width">
+        <span data-i18n="Cancel export">Cancel export</span>
+      </button>
+    </dialog>
+    <dialog id="help-dialog" aria-labelledby="help-title">
+      <div class="dialog-top">
+        <span class="eyebrow"
+          ><span data-i18n="A FEW MOMENTS TO A FINISHED VIDEO"
+            >A FEW MOMENTS TO A FINISHED VIDEO</span
+          ></span
+        ><button
+          class="icon-button"
+          id="help-close"
+          aria-label="Close guide"
+          data-i18n-aria-label="Close guide"
+        >
+          ✕
+        </button>
+      </div>
+      <h2 id="help-title">
+        <span data-i18n="Editor guide">Editor guide</span>
+      </h2>
+      <ol class="guide-list">
+        <li>
+          <b
+            ><span data-i18n="Bring the two halves together."
+              >Bring the two halves together.</span
+            ></b
+          >
+          <p>
+            <span
+              data-i18n="Choose a local video and a CSV with time_ms (or time_us/time_s), thrust, and pressure columns. Set the source units in Project and the converted video units in Appearance."
+              >Choose a local video and a CSV with time_ms (or time_us/time_s),
+              thrust, and pressure columns. Set the source units in Project and
+              the converted video units in Appearance.</span
+            >
+          </p>
+        </li>
+        <li>
+          <b
+            ><span data-i18n="Keep the part that matters."
+              >Keep the part that matters.</span
+            ></b
+          >
+          <p>
+            <span
+              data-i18n="Drag the trim handles or enter In and Out times. These refer to the original video. The Video inspector shows source frames and matching CSV rows. Set In starts at the displayed frame; Set Out includes it. Press I or O to set either edge. The start button or Home returns to the selected In point without changing synchronization."
+              >Drag the trim handles or enter In and Out times. These refer to
+              the original video. The Video inspector shows source frames and
+              matching CSV rows. Set In starts at the displayed frame; Set Out
+              includes it. Press I or O to set either edge. The start button or
+              Home returns to the selected In point without changing
+              synchronization.</span
+            >
+          </p>
+        </li>
+        <li>
+          <b><span data-i18n="Find the ignition.">Find the ignition.</span></b>
+          <p>
+            <span
+              data-i18n="Pause on the first visible ignition frame. Check the suggested CSV ignition time, then click “Align ignition here” or press S. Drag the CSV track or adjust its offset to refine synchronization."
+              >Pause on the first visible ignition frame. Check the suggested
+              CSV ignition time, then click “Align ignition here” or press S.
+              Drag the CSV track or adjust its offset to refine
+              synchronization.</span
+            >
+          </p>
+        </li>
+        <li>
+          <b
+            ><span data-i18n="Give the data its place."
+              >Give the data its place.</span
+            ></b
+          >
+          <p>
+            <span
+              data-i18n="In Appearance, choose Full frame + data to keep the entire video visible, with charts below and a test record beside it. In Project, add the motor model, date, logger, camera, and notes. Choose an output aspect ratio. Overlay on footage remains available. Thrust and pressure have separate labeled scales."
+              >In Appearance, choose Full frame + data to keep the entire video
+              visible, with charts below and a test record beside it. In
+              Project, add the motor model, date, logger, camera, and notes.
+              Choose an output aspect ratio. Overlay on footage remains
+              available. Thrust and pressure have separate labeled scales.</span
+            >
+          </p>
+        </li>
+        <li>
+          <b
+            ><span data-i18n="Correct a timing mismatch, when needed."
+              >Correct a timing mismatch, when needed.</span
+            ></b
+          >
+          <p>
+            <span
+              data-i18n="In Advanced · telemetry time stretch, pause at the matching end event and use “Align end here.” Set CSV end event to the burnout time if your log continues after the burn. This keeps the aligned ignition fixed. You can also enter a duration, drag the CSV right edge, or match two events. 200% spreads one logger second over two video seconds. The chart keeps the original CSV clock and impulse; exported frames label the changed timing."
+              >In Advanced · telemetry time stretch, pause at the matching end
+              event and use “Align end here.” Set CSV end event to the burnout
+              time if your log continues after the burn. This keeps the aligned
+              ignition fixed. You can also enter a duration, drag the CSV right
+              edge, or match two events. 200% spreads one logger second over two
+              video seconds. The chart keeps the original CSV clock and impulse;
+              exported frames label the changed timing.</span
+            >
+          </p>
+        </li>
+        <li>
+          <b><span data-i18n="Measure the burn.">Measure the burn.</span></b>
+          <p>
+            <span
+              data-i18n="In Measure telemetry, drag A and B onto the thrust rise and decay or use Detect burn. The result uses original CSV seconds. Reuse A/B as synchronization events or show the interval in the exported video."
+              >In Measure telemetry, drag A and B onto the thrust rise and decay
+              or use Detect burn. The result uses original CSV seconds. Reuse
+              A/B as synchronization events or show the interval in the exported
+              video.</span
+            >
+          </p>
+        </li>
+        <li>
+          <b
+            ><span data-i18n="Export the finished cut."
+              >Export the finished cut.</span
+            ></b
+          >
+          <p>
+            <span
+              data-i18n="Choose MP4 or WebM, resolution, and quality. The overlay is rendered into every frame; original audio is retained when enabled. No upload or account is required."
+              >Choose MP4 or WebM, resolution, and quality. The overlay is
+              rendered into every frame; original audio is retained when
+              enabled. No upload or account is required.</span
+            >
+          </p>
+        </li>
+      </ol>
+      <div class="info-box">
+        <svg class="icon"><use href="#i-help" /></svg>
+        <p>
+          <span
+            data-i18n="Suggested ignition uses 5% of peak thrust. Verify it visually. Gaps longer than the greater of 0.5 seconds or three typical logger intervals stay blank and do not contribute to impulse. No baseline correction or smoothing is applied."
+            >Suggested ignition uses 5% of peak thrust. Verify it visually. Gaps
+            longer than the greater of 0.5 seconds or three typical logger
+            intervals stay blank and do not contribute to impulse. No baseline
+            correction or smoothing is applied.</span
+          >
+        </p>
+      </div>
+    </dialog>
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

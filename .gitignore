@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.DS_Store
+test-results/
+screenshots/
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.avi
+*.csv
+*.tsv

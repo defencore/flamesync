@@ -1,0 +1,138 @@
+# FlameSync
+
+A static, browser-local video studio for **flamesync.defencore.com**. Combine static-fire footage with a thrust and pressure CSV, trim the footage, align ignition, and download a video with telemetry rendered into its frames. The interface defaults to Ukrainian, with an English option in the header. Language changes apply immediately without resetting files, trimming, synchronization, or measurements. Only the language preference is stored locally. Code comments and rendered video annotations remain English.
+
+## Use
+
+1. In **Project**, use **Add files** to choose video and CSV together, or drop both anywhere in the editor. Set the actual units under **CSV format & units**. Motor model and test date are directly below the source files; expand **More test details** for logger, camera, and notes.
+2. Select the video range with the trim handles or the **In / Out** controls. The **Video** inspector beside the preview shows the current source frame, its precise timestamp and interval, playback FPS, resolution, and CSV sample rate. **Set In** starts at the displayed frame; **Set Out** includes that frame. Expand **Source details** for the filename, codec, size, duration, and timing inspection.
+3. The **Go to selected start** transport button (or **Home**) returns to the current **In** point and pauses playback, preserving trimming and synchronization. Pause at visible ignition, verify the suggested anchor under **Fine synchronization**, and click **Align ignition here**. Alignment pauses on the selected frame and waits for the final queued seek when scrubbing quickly. It maps that frame to the chosen CSV ignition while preserving the current duration percentage, including 200% slow-motion mappings. Repeated alignment at the same frame keeps the same offset. Refine with the offset field (microsecond precision), 10 ms buttons, or by dragging the CSV track.
+4. Under **Appearance**, choose **Full frame + data** to keep every part of the source visible, with charts below and useful information beside the footage. In **Project**, fill in the motor model, test date and ID, location, logger, sample rate, camera, and recording notes. Only populated fields appear; sample rate defaults to the average derived from the CSV. The side panel also shows peak values and total impulse. Choose a source, landscape, portrait, or square output frame; the source is always fitted without stretching or cropping. **Overlay on footage** puts the charts on the image instead. Adjust title, theme, height, pressure, and impulse to suit.
+5. Click **Save video** in the header or the **Save your video** panel below the editor. The panel explains which files or alignment are needed before saving and shows the selected format, duration, and dimensions when ready. **Format & quality** opens the export settings and focuses the format selector. Change MP4 / H.264 or WebM / VP9, resolution, quality, frame rate, and audio there. When creation finishes, the download starts automatically; the completed file can be downloaded again from the same visible save panel. The sample project includes clearly labeled synthetic footage, audio, and telemetry.
+
+These instructions use the English labels. The header language selector switches between **UA** and **EN**. Ukrainian users follow **Файли й дані → Синхронізація й обрізка → Зберегти відео**; advanced timing correction and longer explanations remain in disclosures and information tooltips.
+
+## Timeline editing
+
+The timeline has its own visible time window. **+ / −** zoom around the playhead, **Fit video** shows the complete source, and **Fit selection** shows the In/Out range. The scrollbar pans a zoomed window. Click or drag the video track or ruler to seek; Alt + wheel zooms at the pointer, while Shift + wheel or horizontal scrolling pans. Zoom and pan change the view only and never retime or trim the export.
+
+**Snap** is on by default: trim handles snap to actual frame presentation boundaries, and CSV dragging aligns its start, ignition, or end near the playhead, trim edges, or source endpoints. Hold **Alt** to bypass snapping temporarily. Exact numeric trim and offset fields retain the entered seconds. A narrow selection can be enlarged with **Fit selection** for precise editing. **Loop** repeatedly plays the selected range for visual comparison.
+
+**Undo / Redo** covers trim points, telemetry offset, time scale, and chosen CSV anchors. A complete drag is one undo step; **Escape**, pointer cancellation, and lost capture roll back the entire gesture. History stores at most 100 numeric snapshots, independently of media size. A replacement video resets obsolete edit history and alignment while keeping the chosen events in the current CSV; a new CSV or reinterpreted CSV time unit resets its clock and anchors. **Clear trim** restores the complete video while retaining synchronization. **Reset edits** resets trimming and synchronization together and can be undone.
+
+All frame-derived actions (In/Out, ignition/end alignment, and event capture) pause and wait for the final requested source frame. Out is exclusive for export; previewing the Out edge or reaching the selected end shows the last included frame. Invalid CSV anchor drafts remain visible with a validation message, disable the corresponding alignment actions, and leave the applied mapping/history unchanged.
+
+Keyboard controls outside editable fields: **Space** play/pause, **Left / Right** step one source frame, **Shift + Left / Right** step ten, **Home / End** go to the first/last included frame, **I / O** mark In/Out, **S** align ignition, **+ / −** zoom, **F** fit selection, **\*\* fit video, **Ctrl/Cmd + Z** undo, **Ctrl/Cmd + Shift + Z** or **Ctrl + Y\*\* redo. Text fields retain their native editing shortcuts. Character commands also recognize physical keys when using a Ukrainian keyboard layout.
+
+## Video presentation
+
+The full-frame layout keeps the source uncropped, reserves a separate bottom region for the telemetry, and uses the side region for context. Current thrust, pressure, logger time, and optional impulse sit beside the chart with separate unit scales and enough spacing at the minimum panel height. The model and ISO date lead the sidebar, followed by live totals or final results, source-frame/log diagnostics, and populated test details. A single heading identifies whether peaks and impulse are still accumulating; repeated duration and progress annotations are omitted. The optional A/B duration appears on the graph itself.
+
+The same geometry and renderer are used by preview and export. Metadata wrapping is cached per canvas; current values and source frame/log positions remain live. Long records, portrait/square/ultrawide frames, pressure plus impulse, and the minimum panel height are covered by layout checks. Empty metadata fields are omitted.
+
+## CSV contract
+
+```csv
+time_ms;thrust;pressure
+0;0.4;0.0
+16;0.4;0.0
+33;0.4;0.0
+```
+
+Semicolon, comma, and tab delimiters are supported. Semicolon or tab separated files may use decimal commas. UTF-8 BOM, quoted individual fields, reordered named columns, blank lines, and `#` / `//` comment lines are supported. Fields must be numeric and timestamps must increase strictly. Time is explicit: **time_ms** means milliseconds, **time_us** (also time*µs/time*μs) means microseconds, and **time_s** means seconds. A generic **time** column requires choosing its unit under **Project → CSV format & units**. The time-unit selector can also override a mislabeled header. Numeric magnitude is never used to guess units; every timeline calculation uses normalized seconds. Reinterpreting the time unit resets synchronization and A/B measurement. Maximum CSV size is 50 MB. Malformed rows produce an explicit line-numbered error rather than being silently skipped.
+
+Set **CSV thrust** and **CSV pressure** to the actual recorded units in Project. Set **Thrust unit** and **Pressure unit** under **Appearance → Video units** for the converted output. Values, both chart axes, peaks, and impulse all use the selected output units in preview and export. Force supports N, kN, kgf, gf, and lbf; pressure supports Pa, kPa, MPa, bar, psi, and atm. Conversion factors follow [NIST SP 811](https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b9). Input is normalized once to N and bar; changing output units does not reparse the log, alter synchronization, smooth data, or change the baseline. Reinterpreting source force or pressure units preserves timing and manual measurement markers. Impulse uses the selected thrust unit multiplied by original logger seconds. Integration uses trapezoids of nonnegative endpoint thrust, like the supplied reference analyzer. A gap is longer than the greater of **0.5 seconds or three typical logger intervals** (a bounded median estimate), so low-rate logging remains valid. No interpolation or integration is performed across these gaps. Impulse after a gap is the sum of the measured intervals only. The suggested ignition is the interpolated first crossing of 5% of peak thrust and should be visually verified.
+
+Synchronization uses `csvTime = (originalVideoTime - offset) / timeScale`, with `timeScale = 1` for ordinary editing. A positive offset moves the CSV later. The PLAYHEAD thumb and VIDEO / CSV LOG cursor share the same time axis, including the slider thumb radius, on desktop and mobile. The original CSV clock is retained, including a nonzero first sample. Trimming does not change alignment. The same Canvas renderer is used for preview and export; future curves may be faintly visible or hidden. There are independent labeled thrust and pressure scales. Values outside the log and inside data gaps show an em dash.
+
+Video and telemetry do not need matching rates: 120 FPS footage and a 50 Hz CSV are both evaluated in seconds, with interpolation between valid CSV samples. High or variable FPS never automatically stretches the log. In particular, ordinary 60 FPS footage does not need 200% telemetry duration just because it has twice as many frames as 30 FPS footage. **Match source** keeps the original frame timestamps; choosing a fixed export FPS resamples frames while preserving duration and telemetry time. Slow-motion files may play at a different rate from their capture rate; the file playback clock is authoritative. Use explicit time stretch or two-event alignment when intentionally mapping real-time telemetry to slow-motion playback.
+
+The bottom panel shows instantaneous thrust, pressure, and CSV time. **Appearance → Side panel values** chooses **Live totals** (impulse and peaks reached up to the current frame) or **Final results** (the complete CSV). Live totals rewind correctly, retain the last known values during data gaps, and become final results when the log ends. The chart cursor follows the CSV clock. Accumulated impulse can optionally also be shown in the bottom panel.
+
+The right panel leads with the tested motor from **Project → Motor model** and its test date in **YYYY-MM-DD**. Empty metadata and placeholders are omitted. **VIDEO & LOG** identifies the current source frame, timestamp, physical CSV row, video dimensions/FPS, and the video and CSV filenames. Long filenames retain their beginning and extension; the log rate appears beside the log caption. These source identities are rendered into exports as well as the preview. The column uses 24% of an ordinary frame, with a height-based limit for ultrawide output. Essential results and source diagnostics keep a fixed text scale; additional populated records use the remaining space rather than reducing the entire column's type size.
+
+The chart uses rounded axes in the selected output units, consistent thrust/pressure colors, and a cursor with sample markers. Large instantaneous thrust and pressure values are separated from the compact CSV clock and optional impulse row. Shared geometry keeps chart labels, values, and the full video image in their own reserved regions across output sizes.
+
+The telemetry panel keeps the same space before and after importing files, regardless of import order. Until a CSV is loaded, it displays **Waiting for CSV data** and empty values. The editor does not substitute sample measurements for a user's footage. Full-frame video and test details are clipped to their own regions so they cannot cover the graph.
+
+## Measure telemetry
+
+Open **Measure telemetry** below the preview. This tool works with a CSV alone. Drag A and B onto the thrust rise and decay, click the chart to move the nearest marker, or enter exact CSV seconds. Arrow keys on a marker follow actual CSV samples; Home / End move to the log boundaries. The result is the elapsed interval in original logger seconds.
+
+**Detect burn** interpolates the first rise and final decay through the selected percentage of peak thrust (5% by default). Missing baseline samples, gaps at crossings, and incomplete burns are reported; an unobserved boundary stays blank until set manually. Multiple pulses are measured from the first rise to the final decay, including the pause. Gaps inside a selected interval are included in elapsed time and flagged. This is a threshold-based measurement, so verify or adjust the markers for the test being analyzed.
+
+**Use A/B as sync events** fills the ignition and end CSV anchors without changing alignment or trimming. With time stretch active, the tool also shows the corresponding video duration while keeping the CSV measurement unchanged. **Show measured interval in the video** adds the A/B band and elapsed CSV duration to both preview and export. It is off by default.
+
+## Optional time stretch for analysis
+
+**Advanced · telemetry time stretch** is collapsed by default. Telemetry duration accepts **10–1000%**, with 0.001% input precision. 100% keeps the original timing; 200% maps each logger second to two video seconds. Changing the percentage keeps the selected CSV anchor at the same video frame. Dragging the CSV track shifts it; dragging its right edge in advanced mode changes duration while keeping the first CSV sample fixed. Reset to 100% preserves the selected anchor. Reset on the timeline restores the full video, original timing, and zero offset. Loading a replacement source also resets synchronization.
+
+**Align the end** is the quick two-point workflow: first use **Align ignition here**, pause at the matching end in the video, then click **Align end here** in Advanced. It calculates Telemetry duration and keeps the aligned ignition fixed. **CSV end event** defaults to the last sample; enter the burnout time if the CSV has a tail. Reversed events, out-of-range CSV times, and unsupported scales leave the mapping unchanged. **Go to aligned ignition** jumps to the current synchronization anchor, including its offset and stretch.
+
+For a logger timing error, clock drift, or slow-motion mapping, open **Match two events**. Enter original CSV times for A and B, navigate to each corresponding video event, and use **Use playhead**. **CSV interval**, **Video interval**, and **Required duration** compare the selected events before applying a fit. For example, a 1-second CSV interval matched to a 2-second video interval requires 200%; that ratio alone does not identify which device recorded time incorrectly. **Fit both events** solves offset and duration together. Both points must be within the source ranges, in chronological order, and produce a scale in the supported range. Invalid fits leave the current mapping intact. Closing advanced controls keeps the mapping active; its percentage remains visible in the summary.
+
+The video and audio are never retimed. Sensor amplitudes, the chart's CSV clock, and impulse integration retain the original logger time. Any non-default scale is labeled **TIME STRETCH** on preview and exported frames, including when the test side panel is hidden. This is a global linear time correction; it does not repair missing samples or apply local/nonlinear warping.
+
+The focused telemetry track supports Left / Right for 10 ms offset changes (Shift for 1 ms); its stretch handle supports 1% duration steps.
+
+## Local development
+
+Requires Node.js 22.12+ or 24+.
+
+```sh
+npm ci
+npm run dev
+npm test
+npm run typecheck
+npm run build
+npm run preview
+```
+
+`npm run test:frames -- http://localhost:8080` runs the focused decoded-pixel frame-stepping regressions.
+
+`npm run test:browser -- http://localhost:8080` runs the full editor and export checks with installed Google Chrome. Set `BROWSER_CHANNEL` for another Playwright browser channel. The checks generate synthetic media, exercise batch import, trimming, synchronization and time stretch, export both formats with audio at a non-default scale, inspect the output, compare the burned-in overlay with the preview, test cancellation, and check mobile layout and network privacy. Generated screenshots and videos use an OS temporary directory and are removed after the checks. Only an explicitly supplied `TEST_RESULTS_DIR` retains them. Both MP4 and WebM encoders must be available to pass the complete export suite.
+
+The production `dist/` directory contains HTML, CSS, JavaScript, licenses, the domain `CNAME`, and `.nojekyll`. No runtime server is required. Serve it over HTTPS or localhost; opening `index.html` directly with `file://` does not support module workers. The build checks that no CSV logs, test directories, or generated test media enter the deployment. Generated screenshots and videos use the OS temporary directory. Media and CSV extensions are also excluded from Git. Demo media is generated on demand in the browser; no prerecorded test footage is published.
+
+## GitHub Pages
+
+The workflow in `.github/workflows/pages.yml` tests, builds, and deploys pushes to `main`.
+
+1. In `defencore/flamesync`, set **Settings → Pages → Source → GitHub Actions**.
+2. Set the custom domain to **flamesync.defencore.com**.
+3. Create a DNS CNAME record: **flamesync → defencore.github.io**.
+4. Push to `main` or run the deployment workflow, then enable **Enforce HTTPS** after GitHub provisions the certificate.
+
+The build assumes a root domain, as requested. If using a project URL under `/flamesync/` instead, configure Vite's `base` and adjust public asset paths accordingly.
+
+## Export and privacy
+
+Mediabunny and browser WebCodecs decode, composite, and encode frames in a dedicated worker. Exports do not record the preview in real time, so playback speed and monitor refresh rate do not affect the result. Audio and video are both trimmed on the same original timeline. If requested audio cannot be encoded, export reports an error rather than silently removing it. A dedicated worker scans every frame presentation timestamp without decoding the video payload. The editor displays measured playback FPS, total frame count, constant/variable timing, and average CSV sample rate. The right-side Video inspector uses one-based source frame numbers in presentation order, with timestamps shown to six decimal places. Below the frame counter, **CSV row** identifies physical lines in the original file, counting headers, blank lines, and comments. Between samples it shows both rows and the interpolation percentage; the mapped CSV clock is displayed in the original time unit. Before/after-log positions and data gaps have explicit statuses. This lookup uses absolute logger time, offset, and time stretch; it never pairs a row with a frame by index. Frame numbers retain their source positions after trimming; Out is exclusive and its button uses the end of the displayed frame. The full-frame export side panel also includes the source frame and timestamp. Capture FPS is not inferred from playback FPS because slow-motion files may store a different playback clock. Frame stepping follows the indexed presentation times, including VFR and fractional frame rates; it does not assume 30 FPS. The lookup tolerates browser microsecond timestamp rounding, and native seeks land just inside the chosen frame so decoding cannot round back to the preceding image. The logical frame timestamp remains the original source PTS, so repeated next/previous steps keep advancing without retiming telemetry. The first/last source-frame buttons disable at their respective boundaries. Export retains original frame timestamps when **Match source** is selected.
+
+Export needs WebCodecs, OffscreenCanvas, and codecs supported by the browser and OS. Recent Chrome / Edge are recommended; Safari support depends on its version and OS codecs. Unsupported inputs or outputs are reported with an actionable message. MP4 uses H.264 / AAC; WebM uses VP9 / Opus. Compatible audio is copied when exact timestamps can be preserved; otherwise it is re-encoded. Re-encoding may add a short codec padding tail. Try the other output format if an encoder is unavailable.
+
+Files are read through local Blob URLs. No video or CSV is sent over the network. Dependencies are bundled and hosted with the site; there are no CDN imports, external fonts, analytics, accounts, API keys, or upload endpoints. The Content Security Policy limits connections to the site itself and localhost development sockets. Edits and source files live only in the current tab and are not retained after a reload. Only the interface language preference is kept in local storage; filenames, metadata, media, and CSV data are not saved there. Encoded output is buffered in memory, so large or high-resolution exports require enough RAM. Canceling terminates the worker and discards the unfinished output. The completed output remains downloadable until replaced or the tab is closed.
+
+## Implementation
+
+- `src/app.js`, `src/state.js`, and `src/dom.js`: editor setup, canonical session state, cached element access, and accessible tabs. UI changes share a scheduled refresh; edit-only changes skip source metadata, data summaries, and canvas resizing. Pointer moves coalesce once per animation frame; resized timeline curves are rasterized only for the visible window.
+- `src/source-controller.js` and `src/csv-worker.js`: local source lifecycle, asynchronous CSV parsing and chart reduction, cancellation, and stale-import protection.
+- `src/player-controller.js`, `src/shortcuts.js`, and `src/video-info-controller.js`: presented-frame playback, exclusive Out semantics, range looping, keyboard commands, and source inspection.
+- `src/edit-model.js` and `src/edit-controller.js`: immutable edit snapshots, binary frame-boundary lookup, viewport math, bounded transactional undo/redo, and the sole command path for trim/clock changes.
+- `src/timeline-controller.js`, `src/timeline-view.js`, `src/timeline-interactions.js`, and `src/timeline.css`: trim orchestration, shared visible time axis, cached viewport-resolution curves, pointer capture/cancellation, snapping, and compact timeline controls.
+- `src/synchronization-controller.js`: canonical CSV anchors, validated draft event pairs, exact-frame alignment, scale/pivot adjustment, and clock comparison. No synchronization calculation reads state back from a rendered DOM label.
+- `src/measurement.js`, `src/measurement-controller.js`, and `src/measurement-chart.js`: burn detection, interval validation, A/B controls, and chart annotations.
+- `src/appearance-controller.js`, `src/ui-controller.js`, and `src/tooltips.js`: presentation settings, control availability, compact analysis tabs, and keyboard/touch-accessible help.
+- `src/data.js` and `src/units.js`: strict CSV parsing, explicit time units, physical line lookup, source/output conversion, interpolation, rate-aware gap handling, impulse, timeline math, and spike-preserving chart reduction.
+- `src/overlay.js`, `src/composition.js`, and `src/preview-controller.js`: shared Canvas composition for full-frame footage, telemetry, test metadata, source frame information, and optional measurement annotations.
+- `src/timing.js` and `src/video-timing-worker.js`: full presentation timestamp inspection, measured frame rates, binary frame lookup, and selected frame ranges.
+- `src/export-controller.js` and `src/export-worker.js`: export lifecycle, frozen settings, frame processing, and audio/video encoding.
+- `src/i18n.js`, `src/messages.js`, and `src/locales/uk.js`: live language selection, explicit text/attribute bindings, and parameterized messages shared with validation workers. Source messages provide the English interface; the Ukrainian catalog is checked for coverage and matching interpolation parameters.
+- `src/demo.js`: local synthetic footage, audio, and sample data generated on demand.
+- `tests/data.test.js`, `tests/measurement.test.js`, and `tests/units.test.js`: parsing, measurement boundaries, gaps, time mapping, dimensions, source/output units, physical CSV lines, and constant/variable frame selection.
+- `tests/frame-stepping.test.js` and `tests/frame-stepping-browser.mjs`: repeated and rapid source-frame steps at 29.97/59.94/60/120 FPS and VFR, verified against decoded source pixels and the composed preview.
+- `tests/edit-model.test.js`, `tests/editor-workflow.mjs`, and `tests/overlay.test.js`: transactional history, million-frame indexed lookup, zoomed geometry, snapping, canceled gestures, source replacement, loop playback, VFR queued In/Out, annotation hierarchy and safe layout.
+- `tests/i18n.test.js`: static/dynamic translation coverage, message parameters, and worker error localization.
+- `tests/browser.mjs`: Ukrainian default and preference persistence, language changes with live files and settings, responsive save controls, localized errors and tooltips, import order, CSV-only measurements, microsecond log rows and unit conversion, actual 60/120 FPS/VFR sources, responsive playhead geometry, frame selection, preview/export parity, audio, cancellation, tooltips, mobile layout, and network privacy.
+
+Media processing uses [Mediabunny](https://mediabunny.dev/guide/converting-media-files), distributed under MPL-2.0. See `THIRD_PARTY_NOTICES.md`.
