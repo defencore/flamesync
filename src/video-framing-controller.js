@@ -3,6 +3,7 @@ import { containRect } from "./data.js";
 import { errorMessage } from "./messages.js";
 import { compositionGeometry } from "./composition-layout.js";
 import { DEFAULT_VIDEO_FRAMING, moveVideoFraming, videoFraming } from "./video-framing.js";
+import { createVideoFramingGuides } from "./video-framing-guides.js";
 
 // Placement is visual only. It never edits source frames, trimming, or synchronization.
 export function createVideoFramingController(editor) {
@@ -10,6 +11,7 @@ export function createVideoFramingController(editor) {
   const listeners = new AbortController();
   const stage = $("preview-stage");
   const dragButton = $("video-framing-drag");
+  const guides = createVideoFramingGuides(canvas, stage);
   const controls = [
     ["video-position-x", "videoX", "video-position-x-value"],
     ["video-position-y", "videoY", "video-position-y-value"],
@@ -35,6 +37,13 @@ export function createVideoFramingController(editor) {
     dragMode = Boolean(enabled && available());
     dragButton.setAttribute("aria-pressed", String(dragMode));
     stage.dataset.videoFraming = String(dragMode);
+    updateGuides();
+  }
+  function updateGuides() {
+    const visible = dragMode && available();
+    guides.update(visible, visible
+      ? compositionGeometry(canvas.width, canvas.height, state.width, state.height, state.style).videoFrame
+      : null);
   }
   function paint() {
     update();
@@ -82,6 +91,7 @@ export function createVideoFramingController(editor) {
     const enabled = available();
     if (active && (!enabled || !sameGeometry(active))) finish(true, false);
     if (!enabled) setDragMode(false);
+    else updateGuides();
     $("video-framing").hidden = state.style.layout !== "stacked";
     dragButton.hidden = state.style.layout !== "stacked";
     dragButton.disabled = !enabled;
@@ -136,6 +146,8 @@ export function createVideoFramingController(editor) {
       aspect: state.style.frameAspect,
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
+      displayWidth: bounds.width,
+      displayHeight: bounds.height,
       initial: videoFraming(state.style),
       body,
       outputPerClientPixel,
@@ -199,6 +211,12 @@ export function createVideoFramingController(editor) {
     paint();
   });
 
+  // A resized display invalidates the pointer-to-output scale of an active drag.
+  const resizeObserver = new ResizeObserver(([entry]) => {
+    if (active && (Math.abs(entry.contentRect.width - active.displayWidth) > 0.5 ||
+      Math.abs(entry.contentRect.height - active.displayHeight) > 0.5)) finish(true);
+  });
+  resizeObserver.observe(canvas);
   update();
   return {
     update,
@@ -206,6 +224,8 @@ export function createVideoFramingController(editor) {
       finish(true, false);
       disposed = true;
       setDragMode(false);
+      resizeObserver.disconnect();
+      guides.dispose();
       listeners.abort();
     },
   };

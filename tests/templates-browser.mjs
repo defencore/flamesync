@@ -93,6 +93,11 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
   };
   const drawing = () => page.evaluate(() => window.__templateDrawing);
   const image = () => page.locator("#preview").evaluate((canvas) => canvas.toDataURL());
+  const pixelDigest = () => page.locator("#preview").evaluate(async (canvas) => {
+    const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    const digest = await crypto.subtle.digest("SHA-256", pixels);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  });
   const activeSpan = (box) => page.locator("#preview").evaluate((canvas, box) => {
     const context = canvas.getContext("2d");
     const left = Math.ceil(box.x), top = Math.ceil(box.y);
@@ -120,6 +125,61 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
   const overlay = overlayGeometry(1920, 1080, stackedStyle);
   const scaledBox = (box) => Object.fromEntries(Object.entries(box).map(([key, value]) => [key, value * overlay.scale]));
   const thrustBox = scaledBox(overlay.plots.thrust);
+  const assertGuideGeometry = async (context) => {
+    await page.locator("#preview").scrollIntoViewIfNeeded(); await frame();
+    const observed = await page.locator("#video-framing-guides").evaluate((svg) => {
+      const canvas = document.querySelector("#preview");
+      const bounds = canvas.getBoundingClientRect();
+      const scale = Math.min(bounds.width / canvas.width, bounds.height / canvas.height);
+      const content = { x: bounds.x + (bounds.width - canvas.width * scale) / 2,
+        y: bounds.y + (bounds.height - canvas.height * scale) / 2, scale };
+      const matrix = svg.getScreenCTM();
+      const lines = [...svg.querySelectorAll("line[data-guide]")].map((line) => {
+        const style = getComputedStyle(line);
+        return { role: line.dataset.guide, x1: line.x1.baseVal.value, y1: line.y1.baseVal.value,
+          x2: line.x2.baseVal.value, y2: line.y2.baseVal.value,
+          appearance: JSON.stringify([style.stroke, style.strokeWidth, style.strokeOpacity, style.opacity, style.strokeDasharray]) };
+      });
+      return { width: canvas.width, height: canvas.height, content, lines,
+        viewBox: [svg.viewBox.baseVal.x, svg.viewBox.baseVal.y, svg.viewBox.baseVal.width, svg.viewBox.baseVal.height],
+        matrix: { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d, e: matrix.e, f: matrix.f },
+        pointerEvents: getComputedStyle(svg).pointerEvents };
+    });
+    const body = compositionGeometry(observed.width, observed.height, 960, 540, stackedStyle).videoFrame;
+    assert.deepEqual(observed.viewBox, [0, 0, observed.width, observed.height], `${context}: guides must share the output canvas coordinate system`);
+    assert.equal(observed.pointerEvents, "none", `${context}: guides must never intercept placement gestures`);
+    // SVG length baseVal uses float precision: 340.8 becomes 340.7999878.
+    // A thousandth of an output pixel still catches misplaced guide geometry.
+    const near = (actual, expected, description, tolerance = 0.001) =>
+      assert.ok(Math.abs(actual - expected) <= tolerance, `${context}: ${description}, ${actual} versus ${expected}`);
+    const vertical = observed.lines.filter((line) => line.x1 === line.x2);
+    const horizontal = observed.lines.filter((line) => line.y1 === line.y2);
+    assert.equal(vertical.length, 9, `${context}: ten-percent vertical subdivisions`);
+    assert.equal(horizontal.length, 9, `${context}: ten-percent horizontal subdivisions`);
+    for (let index = 1; index <= 9; index++) {
+      const x = body.x + body.width * index / 10, y = body.y + body.height * index / 10;
+      const upright = vertical.find((line) => Math.abs(line.x1 - x) < 0.001);
+      const across = horizontal.find((line) => Math.abs(line.y1 - y) < 0.001);
+      assert.ok(upright && across, `${context}: both axes need the ${index * 10}% division`);
+      near(Math.min(upright.y1, upright.y2), body.y, "vertical guide begins below the technical header");
+      near(Math.max(upright.y1, upright.y2), body.y + body.height, "vertical guide stops above filenames");
+      near(Math.min(across.x1, across.x2), body.x, "horizontal guide starts at the footage boundary");
+      near(Math.max(across.x1, across.x2), body.x + body.width, "horizontal guide ends at the footage boundary");
+      assert.equal(upright.role, index === 5 ? "center-x" : "grid");
+      assert.equal(across.role, index === 5 ? "center-y" : index === 8 ? "base" : "grid");
+    }
+    const minor = observed.lines.find((line) => line.role === "grid");
+    for (const role of ["center-x", "center-y", "base"])
+      assert.notEqual(observed.lines.find((line) => line.role === role).appearance, minor.appearance,
+        `${context}: ${role} needs a visible emphasis beyond the subdivision grid`);
+    const { matrix, content } = observed;
+    for (const [x, y] of [[body.x, body.y], [body.x + body.width, body.y + body.height],
+      [body.x + body.width / 2, body.y + body.height / 2], [body.x + body.width / 2, body.y + body.height * 0.8]]) {
+      near(matrix.a * x + matrix.c * y + matrix.e, content.x + x * content.scale, "guide horizontal screen position follows contained footage", 1);
+      near(matrix.b * x + matrix.d * y + matrix.f, content.y + y * content.scale, "guide vertical screen position follows contained footage", 1);
+    }
+    return { body, ...observed };
+  };
   const mediaModule = await readFile(new URL("../node_modules/mediabunny/dist/bundles/mediabunny.min.mjs", import.meta.url), "utf8");
   await page.route("**/__qa__/template-media.mjs", (route) => route.fulfill({ contentType: "text/javascript", body: mediaModule }));
 
@@ -322,9 +382,86 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       assert.deepEqual((await drawing()).videos.at(-1), [geometry.video.x, geometry.video.y, geometry.video.width, geometry.video.height]);
     });
 
+    await caseOf("movement guides follow the footage body across resizing, portrait output, and fullscreen without entering the canvas", async () => {
+      await seek(2);
+      const button = page.locator("#video-framing-drag"), guides = page.locator("#video-framing-guides");
+      assert.equal(await guides.isVisible(), false);
+      const clean = await pixelDigest();
+      const cleanDrawing = await drawing();
+      const nativeTime = await page.locator("#source-video").evaluate((video) => video.currentTime);
+      const sourceFrame = await page.locator("#video-frame-number").textContent();
+      try {
+        await button.click(); await frame();
+        assert.equal(await guides.isVisible(), true);
+        const desktop = await assertGuideGeometry("desktop");
+        assert.equal(await pixelDigest(), clean, "Showing editor guides must not change any rendered output pixel");
+        await button.click(); assert.equal(await guides.isVisible(), false);
+        assert.equal(await pixelDigest(), clean, "Hiding guides at the same output size must preserve every canvas pixel");
+        await button.click(); assert.equal(await guides.isVisible(), true);
+        assert.equal(await pixelDigest(), clean, "Showing guides again must preserve the same clean output pixels");
+        assert.equal(await page.evaluate(({ body, content }) => document.elementFromPoint(
+          content.x + (body.x + body.width / 2) * content.scale,
+          content.y + (body.y + body.height / 2) * content.scale)?.id, desktop), "preview",
+        "Pointer events at crossing guides must reach the video canvas");
+        await page.locator("#preview-stage").screenshot({ path: join(outputDir, "templates-framing-grid-desktop.png") });
+        await page.setViewportSize({ width: 390, height: 844 }); await frame();
+        await assertGuideGeometry("mobile CSS resize");
+        assert.equal(await pixelDigest(), clean, "Responsive guide positioning must not alter the output canvas");
+        await page.locator("#preview-stage").screenshot({ path: join(outputDir, "templates-framing-grid-mobile.png") });
+        await select("frame-aspect", "portrait"); await assertGuideGeometry("portrait output");
+        await page.locator("#preview-stage").screenshot({ path: join(outputDir, "templates-framing-grid-portrait.png") });
+        await select("frame-aspect", "landscape");
+        await page.setViewportSize({ width: 1440, height: 1050 }); await frame();
+        await assertGuideGeometry("restored landscape");
+        assert.deepEqual(await drawing(), cleanDrawing, "Returning to landscape must preserve composition labels, native frame PTS, and source image bounds");
+        assert.equal(await page.locator("#source-video").evaluate((video) => video.currentTime), nativeTime);
+        assert.equal(await page.locator("#video-frame-number").textContent(), sourceFrame);
+        // Intrinsic resizing resets browser raster caches. The exact pixel
+        // checks above isolate guide toggles from that separate context reset.
+        if (await page.evaluate(() => document.fullscreenEnabled)) {
+          await page.locator("#fullscreen").click();
+          await page.waitForFunction(() => document.fullscreenElement?.id === "preview-stage");
+          await assertGuideGeometry("fullscreen");
+          assert.deepEqual(await drawing(), cleanDrawing, "Fullscreen guides must not alter composed data, timestamps, or source image bounds");
+          await page.locator("#preview-stage").screenshot({ path: join(outputDir, "templates-framing-grid-fullscreen.png") });
+          await page.evaluate(() => document.exitFullscreen());
+          await page.waitForFunction(() => !document.fullscreenElement);
+          await assertGuideGeometry("after fullscreen");
+        }
+        const framingBefore = await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue()));
+        const rectangle = await page.locator("#preview").boundingBox(); assert.ok(rectangle);
+        const x = rectangle.x + rectangle.width * 0.4, y = rectangle.y + rectangle.height * 0.5;
+        await page.mouse.move(x, y); await page.mouse.down();
+        await page.mouse.move(x + rectangle.width * 0.06, y + rectangle.height * 0.04, { steps: 4 }); await frame();
+        assert.notDeepEqual(await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue())), framingBefore,
+          "Resize cancellation must exercise an actual changed placement draft");
+        await page.setViewportSize({ width: 1280, height: 850 });
+        await page.waitForFunction(() => !document.querySelector("#preview").classList.contains("dragging"));
+        await page.mouse.up(); await frame();
+        assert.deepEqual(await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue())), framingBefore,
+          "Resizing the display during a drag must cancel the obsolete screen-space draft");
+        await assertGuideGeometry("resize during placement");
+        await page.setViewportSize({ width: 1440, height: 1050 }); await frame();
+        await page.locator("#preview").focus(); await page.keyboard.press("Escape"); await frame();
+        assert.equal(await guides.isVisible(), false, "Escape must hide the editor grid along with movement mode");
+        assert.deepEqual(await drawing(), cleanDrawing, "Escape must preserve the composition after guide movement is canceled");
+        await button.click(); assert.equal(await guides.isVisible(), true);
+        await button.click(); assert.equal(await guides.isVisible(), false);
+        assert.deepEqual(await drawing(), cleanDrawing, "Toggling movement off must preserve the same composed data and footage bounds");
+      } finally {
+        await page.mouse.up();
+        await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined);
+        if (await page.locator("#frame-aspect").inputValue() !== "landscape") await select("frame-aspect", "landscape");
+        await page.setViewportSize({ width: 1440, height: 1050 });
+        if (await button.getAttribute("aria-pressed") === "true") await button.click();
+        await frame();
+      }
+    });
+
     await caseOf("preview drag supports committing, pointer cancellation, Escape, and reset without covering the source header", async () => {
       const preview = page.locator("#preview"), button = page.locator("#video-framing-drag");
       await button.click(); assert.equal(await button.getAttribute("aria-pressed"), "true");
+      assert.equal(await page.locator("#video-framing-guides").isVisible(), true, "Placement gestures should display the alignment grid");
       const rectangle = await preview.boundingBox(); assert.ok(rectangle);
       const start = { x: rectangle.x + rectangle.width * 0.42, y: rectangle.y + rectangle.height * 0.55 };
       await page.mouse.move(start.x, start.y); await page.mouse.down();
@@ -344,6 +481,7 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       assert.deepEqual(await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue())), committed,
         "Escape must restore the gesture's initial framing");
       assert.equal(await button.getAttribute("aria-pressed"), "false");
+      assert.equal(await page.locator("#video-framing-guides").isVisible(), false);
       await button.click(); await preview.focus();
       const counter = await page.locator("#video-frame-number").textContent();
       await preview.press("ArrowRight"); await preview.press("Shift+ArrowUp"); await frame();
@@ -459,6 +597,10 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       assert.equal(await page.locator("#export-quality").inputValue(), "very-high");
       await select("export-fps", "24"); await page.locator("#keep-audio").uncheck();
       await seek(2);
+      const clean = await pixelDigest();
+      await page.locator("#video-framing-drag").click(); await frame();
+      assert.equal(await page.locator("#video-framing-guides").isVisible(), true, "The test must export while editor guides are visible");
+      assert.equal(await pixelDigest(), clean, "Visible DOM guides must remain absent from the canvas used for export");
       await page.locator("#preview").evaluate((canvas) => {
         window.__templateExpected = { width: canvas.width, height: canvas.height,
           pixels: canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data };
@@ -467,6 +609,7 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       const download = await event; assert.match(download.suggestedFilename(), /\.mp4$/);
       const path = join(outputDir, "templates-stacked.mp4"); await download.saveAs(path);
       await page.waitForFunction(() => !document.querySelector("#export-dialog").open);
+      assert.equal(await page.locator("#video-framing-guides").isVisible(), false, "Export should leave movement mode and its editor-only grid");
       const input = new Input({ source: new BufferSource(await readFile(path)), formats: ALL_FORMATS });
       try {
         const track = await input.getPrimaryVideoTrack(); assert.ok(track);
@@ -577,9 +720,12 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       }
       await select("language-select", "uk");
       await page.screenshot({ path: join(outputDir, "templates-stacked-mobile.png"), fullPage: true });
+      await page.locator("#video-framing-drag").click();
+      assert.equal(await page.locator("#video-framing-guides").isVisible(), true);
       await select("presentation-layout", "full");
       assert.equal(await page.locator("#video-framing").isVisible(), false);
       assert.equal(await page.locator("#video-framing-drag").isVisible(), false);
+      assert.equal(await page.locator("#video-framing-guides").isVisible(), false, "The grid belongs only to movement in the on-video template");
       const fullGeometry = compositionGeometry(1920, 1080, 960, 540, defaultStyle).video;
       assert.deepEqual((await drawing()).videos.at(-1), [fullGeometry.x, fullGeometry.y, fullGeometry.width, fullGeometry.height],
         "The existing full presentation must ignore the stacked template's framing values");

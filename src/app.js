@@ -40,9 +40,12 @@ const editor = {
       refreshFrame = 0;
       const full = fullRefresh;
       fullRefresh = false;
-      editor.framing?.update();
-      if ($("video-editor").hidden) return;
+      if ($("video-editor").hidden) {
+        editor.framing?.update();
+        return;
+      }
       if (full) editor.preview.resize();
+      editor.framing?.update();
       editor.timeline.update();
       if (full) {
         editor.ui.update();
