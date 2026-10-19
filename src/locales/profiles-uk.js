@@ -12,7 +12,7 @@ export const profilesUk = {
   "Applies to new files. Existing profiles have their own source units.":
     "Для нових файлів. Одиниці вже доданих профілів налаштовуються окремо.",
   "Drop multiple CSV files here": "Перетягніть сюди файли CSV",
-  "Up to 12 logs · local processing only": "До 12 логів · обробка на вашому пристрої",
+  "Up to 50 logs · local processing only": "До 50 логів · обробка на вашому пристрої",
   "Reference profile": "Базовий профіль",
   "Align profiles": "Суміщення профілів",
   "Ignition at zero": "Початок горіння в нулі",
@@ -114,8 +114,8 @@ export const profilesUk = {
     "Укажіть коректне значення в часовому діапазоні CSV.",
   "Enter a positive propellant mass or leave it empty.":
     "Укажіть додатну масу палива або залиште поле порожнім.",
-  "Add up to 12 CSV logs, each smaller than 20 MB (100 MB total).":
-    "Додайте до 12 логів CSV, кожен менший за 20 МБ, разом — до 100 МБ.",
+  "Add up to 50 CSV logs, each smaller than 20 MB (100 MB total).":
+    "Додайте до 50 логів CSV, кожен менший за 20 МБ, разом — до 100 МБ.",
   "{name}: {details}": "{name}: {details}",
   "{count} profiles loaded. Review the detected burn events.":
     "Завантажено профілів: {count}. Перевірте визначені межі горіння.",

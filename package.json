@@ -12,6 +12,7 @@
     "test:browser": "node tests/browser.mjs",
     "test:frames": "node tests/frame-stepping-runner.mjs",
     "test:profiles": "node tests/profile-browser-runner.mjs",
+    "test:series": "node tests/series-browser-runner.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

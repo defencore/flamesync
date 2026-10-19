@@ -142,6 +142,36 @@ test("centered moving means reject linear ramps without treating real slope as r
   assert.ok(result.warnings.some(({ key }) => key.includes("not calibrated uncertainty")));
 });
 
+test("constant and affine windows produce exact zero residual rather than cumulative-integration roundoff", () => {
+  for (const rate of [20, 60, 120, 700]) {
+    for (const shape of [(t) => [100, 2], (t) => [100 + 20 * t, 2 + 4 * t]]) {
+      const data = csv(sampled(0, 2, 1 / rate, shape));
+      const result = analyseProfile(data, { start: 0, end: 2, noiseWindow: 0.1 });
+      assert.equal(result.noiseThrustRms, 0);
+      assert.equal(result.noisePressureRms, 0);
+      assert.equal(result.noiseThrustPercent, 0);
+      assert.equal(result.noisePressurePercent, 0);
+      assert.ok(result.curves.residual.every((point) => point.thrust === 0 && point.pressure === 0));
+    }
+  }
+});
+
+test("affine recognition preserves real small residuals and slowly accumulating curvature", () => {
+  const ripple = csv(Array.from({ length: 2001 }, (_, i) => [i / 1000, 100 + 1e-8 * (i % 2 ? 1 : -1), 2]));
+  const noise = analyseProfile(ripple, { start: 0, end: 2, noiseWindow: 0.1 });
+  near(noise.noiseThrustRms, 1e-8 / Math.sqrt(3), 2e-13);
+  assert.equal(noise.noisePressureRms, 0);
+  // Neighboring slopes differ below signal precision, but curvature over a
+  // complete window is resolved. Maximal affine spans must not swallow it.
+  const curved = csv(Array.from({ length: 2001 }, (_, i) => {
+    const t = i / 1000;
+    return [t, 100 + 1e-8 * t * t, 2];
+  }));
+  const curve = analyseProfile(curved, { start: 0, end: 2, noiseWindow: 0.2 });
+  near(curve.noiseThrustRms, 1e-8 * 0.2 ** 2 / 12, 1e-12);
+  assert.ok(curve.noiseThrustRms > 0);
+});
+
 test("noise is continuous-time weighted and invariant to uneven resampling of the same waveform", () => {
   const triangle = (t) => {
     const force = 90 + 20 * (Math.floor(t) % 2 ? 1 - (t % 1) : t % 1);

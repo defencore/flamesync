@@ -131,11 +131,46 @@ function continuousBlocks(points) {
         for (const key of KEYS)
           totals[key][j] = totals[key][j - 1] + ((block[j - 1][key] + block[j][key]) * dt) / 2;
       }
-      blocks.push({ points: block, totals });
+      blocks.push({ points: block, totals, affine: Object.fromEntries(KEYS.map((key) => [key, affineRuns(block, key)])) });
     }
     start = i;
   }
   return blocks;
+}
+
+// A centered mean reproduces an affine signal exactly. Track maximal spans
+// consistent with one line to floating-point precision, rather than allowing
+// cancellation in cumulative integrals to manufacture residual variation.
+// Intersect slope bounds from the span origin: checking only adjacent slopes
+// could incorrectly accumulate imperceptible local curvature over a long run.
+function affineRuns(points, key) {
+  const runs = [];
+  let start = 0, lower = -Infinity, upper = Infinity;
+  const bounds = (index) => {
+    const origin = points[start][key], value = points[index][key], delta = value - origin;
+    const tolerance = Number.EPSILON * 8 * Math.max(Math.abs(origin), Math.abs(value), Math.abs(delta));
+    const dt = points[index].t - points[start].t;
+    return [(delta - tolerance) / dt, (delta + tolerance) / dt];
+  };
+  for (let i = 1; i < points.length; i++) {
+    let [nextLower, nextUpper] = bounds(i);
+    if (Math.max(lower, nextLower) > Math.min(upper, nextUpper)) {
+      runs.push({ t: points[start].t, end: points[i - 1].t });
+      start = i - 1;
+      [nextLower, nextUpper] = bounds(i);
+      lower = nextLower; upper = nextUpper;
+    } else {
+      lower = Math.max(lower, nextLower); upper = Math.min(upper, nextUpper);
+    }
+  }
+  runs.push({ t: points[start].t, end: points.at(-1).t });
+  return runs;
+}
+
+function affineWindow(block, time, window, key) {
+  const runs = block.affine[key], run = runs[lowerIndex(runs, time)];
+  const tolerance = Number.EPSILON * 4 * Math.max(Math.abs(time), Math.abs(run.t), Math.abs(run.end), window);
+  return time - window / 2 >= run.t - tolerance && time + window / 2 <= run.end + tolerance;
 }
 
 function blockSample(block, time) {
@@ -162,6 +197,11 @@ function trendSample(block, time, window) {
   const trend = { t: time, thrust: 0, pressure: 0 };
   const residual = { t: time, thrust: 0, pressure: 0 };
   for (const key of KEYS) {
+    if (affineWindow(block, time, window, key)) {
+      trend[key] = raw[key];
+      residual[key] = 0;
+      continue;
+    }
     trend[key] = (blockIntegral(block, time + half, key) - blockIntegral(block, time - half, key)) / window;
     residual[key] = raw[key] - trend[key];
   }

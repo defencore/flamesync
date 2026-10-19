@@ -374,7 +374,7 @@ export async function verifyProfiles({ browser, baseURL, fixture, outputDir }) {
       assert.equal(missing.specific_impulse_s, "");
     });
 
-    await caseOf("concurrent import batches respect the twelve-profile limit", async () => {
+    await caseOf("concurrent import batches respect the fifty-profile limit", async () => {
       const limited = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
       limited.on("pageerror", (error) => failures.push(`Profile limit: ${error.message}`));
       limited.on("console", (entry) => {
@@ -390,7 +390,7 @@ export async function verifyProfiles({ browser, baseURL, fixture, outputDir }) {
           // worker reply can release the first batch's reserved capacity.
           for (let batch = 0; batch < 2; batch++) {
             const transfer = new DataTransfer();
-            for (let index = 0; index < 8; index++)
+            for (let index = 0; index < 26; index++)
               transfer.items.add(new File([csv], `batch-${batch}-${index}.csv`, { type: "text/csv" }));
             input.files = transfer.files;
             input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -398,10 +398,10 @@ export async function verifyProfiles({ browser, baseURL, fixture, outputDir }) {
         }, csvFixture().toString("utf8"));
         await limited.waitForFunction(() =>
           document.querySelector("#profile-analysis").getAttribute("aria-busy") === "false" &&
-          document.querySelectorAll("#profiles-table tbody tr[data-profile-id]").length === 12);
-        assert.equal(await limited.locator("#profiles-list [data-profile-id]").count(), 12);
-        assert.equal(await limited.locator("#profiles-count").textContent(), "12 / 12");
-        assert.match(await limited.locator("#profiles-notice").textContent(), /12 CSV logs/);
+          document.querySelectorAll("#profiles-table tbody tr[data-profile-id]").length === 50);
+        assert.equal(await limited.locator("#profiles-list [data-profile-id]").count(), 50);
+        assert.equal(await limited.locator("#profiles-count").textContent(), "50 / 50");
+        assert.match(await limited.locator("#profiles-notice").textContent(), /50 CSV logs/);
       } finally {
         await limited.close();
       }

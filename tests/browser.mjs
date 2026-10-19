@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { verifyFrameStepping } from "./frame-stepping-browser.mjs";
 import { verifyEditorWorkflow } from "./editor-workflow.mjs";
 import { verifyProfiles } from "./profile-browser.mjs";
+import { verifySeries } from "./series-browser.mjs";
 import { mkdir, readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1346,6 +1347,9 @@ try {
   const profiles = await verifyProfiles({ browser, baseURL, fixture, outputDir });
   failures.push(...profiles.failures);
   requests.push(...profiles.requests);
+  const series = await verifySeries({ browser, baseURL, outputDir });
+  failures.push(...series.failures);
+  requests.push(...series.requests);
   await verifyDefaultFullHD(fixture);
   await verifyLocalization(fixture);
   await verifyIgnitionAlignment(fixture);

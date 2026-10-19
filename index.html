@@ -2116,6 +2116,17 @@
         </div>
         <div id="profiles-notice" class="profile-notice" role="status" aria-live="polite" hidden>
         </div>
+        <div class="panel profile-modebar">
+          <label><span data-i18n="Analysis mode">Analysis mode</span><select id="profiles-mode"><option value="comparison" data-i18n="Compare individual tests">Compare individual tests</option><option value="series" data-i18n="Batch / series variation">Batch / series variation</option></select></label>
+          <label id="series-name-label" hidden><span data-i18n="Series name">Series name</span><input id="series-name" maxlength="120" placeholder="Optional" data-i18n-placeholder="Optional"></label>
+          <button id="series-folder" class="button secondary" hidden data-i18n="Add a folder of CSV logs">Add a folder of CSV logs</button>
+          <input id="series-folder-input" type="file" webkitdirectory multiple hidden>
+          <div id="series-chart-controls" class="series-chart-controls" hidden>
+            <label><span data-i18n="Spread band">Spread band</span><select id="series-band"><option value="sd" data-i18n="Mean ± standard deviation">Mean ± standard deviation</option><option value="range" data-i18n="Minimum–maximum">Minimum–maximum</option></select></label>
+            <label class="series-toggle"><input id="series-show-profiles" type="checkbox"><span data-i18n="Show individual profiles">Show individual profiles</span></label>
+            <button class="info-button" aria-label="About series analysis" data-i18n-aria-label="About series analysis" data-help="Every included, complete test has equal weight, regardless of sample rate. The band shows test-to-test spread, not a confidence interval or an acceptance tolerance. Curves use only the common aligned burn interval. Scalar metrics always retain original source time. Exclude a test explicitly to remove it from statistics; hiding its trace does not exclude it." data-i18n-data-help="Every included, complete test has equal weight, regardless of sample rate. The band shows test-to-test spread, not a confidence interval or an acceptance tolerance. Curves use only the common aligned burn interval. Scalar metrics always retain original source time. Exclude a test explicitly to remove it from statistics; hiding its trace does not exclude it.">i</button>
+          </div>
+        </div>
         <div class="profile-workspace">
           <aside class="panel profile-sources">
             <div class="profile-section-title">
@@ -2123,7 +2134,7 @@
                 Profiles
               </h2>
               <span id="profiles-count" class="profile-count">
-                0 / 12
+                0 / 50
               </span>
               <span id="profiles-processing" class="small muted" role="status" hidden data-i18n="Processing CSV logs…">Processing CSV logs…</span>
               <button id="profiles-clear" class="text-button" data-i18n="Clear all">
@@ -2210,8 +2221,8 @@
               <strong data-i18n="Drop multiple CSV files here">
                 Drop multiple CSV files here
               </strong>
-              <span data-i18n="Up to 12 logs · local processing only">
-                Up to 12 logs · local processing only
+              <span data-i18n="Up to 50 logs · local processing only">
+                Up to 50 logs · local processing only
               </span>
             </div>
             <div id="profiles-list" class="profile-list" role="list">
@@ -2353,7 +2364,7 @@
             </div>
             <div class="panel profile-plot-panel">
               <div class="profile-section-title">
-                <h2 data-i18n="Profile overlay">
+                <h2 id="profiles-overlay-title" data-i18n="Profile overlay">
                   Profile overlay
                 </h2>
                 <button class="info-button" aria-label="About profile alignment" data-i18n-aria-label="About profile alignment" data-help="Ignition and burnout alignment shift only the display clock. Both events maps each selected burn to 0–100% for shape comparison. Original durations, impulse, and specific impulse remain unchanged. Drag A/B markers or use the event fields to refine boundaries. Zoom with the wheel, drag to pan, and double-click to fit." data-i18n-data-help="Ignition and burnout alignment shift only the display clock. Both events maps each selected burn to 0–100% for shape comparison. Original durations, impulse, and specific impulse remain unchanged. Drag A/B markers or use the event fields to refine boundaries. Zoom with the wheel, drag to pan, and double-click to fit.">
@@ -2382,13 +2393,13 @@
             </div>
             <div class="panel profile-plot-panel">
               <div class="profile-section-title">
-                <h2 data-i18n="Difference from reference">
+                <h2 id="profiles-difference-title" data-i18n="Difference from reference">
                   Difference from reference
                 </h2>
-                <button class="info-button" aria-label="About profile differences" data-i18n-aria-label="About profile differences" data-help="Candidate minus reference, using raw measurements on the common selected burn interval. RMSE and mean error are time-weighted. Only overlapping valid data contributes; gaps and unsupported extrapolation stay empty. The normalized view compares burn phase, without changing the original metrics." data-i18n-data-help="Candidate minus reference, using raw measurements on the common selected burn interval. RMSE and mean error are time-weighted. Only overlapping valid data contributes; gaps and unsupported extrapolation stay empty. The normalized view compares burn phase, without changing the original metrics.">
+                <button id="profiles-difference-help" class="info-button" aria-label="About profile differences" data-i18n-aria-label="About profile differences" data-help="Candidate minus reference, using raw measurements on the common selected burn interval. RMSE and mean error are time-weighted. Only overlapping valid data contributes; gaps and unsupported extrapolation stay empty. The normalized view compares burn phase, without changing the original metrics." data-i18n-data-help="Candidate minus reference, using raw measurements on the common selected burn interval. RMSE and mean error are time-weighted. Only overlapping valid data contributes; gaps and unsupported extrapolation stay empty. The normalized view compares burn phase, without changing the original metrics.">
                   i
                 </button>
-                <span class="small muted" data-i18n="Raw data · common selected interval">
+                <span id="profiles-difference-caption" class="small muted" data-i18n="Raw data · common selected interval">
                   Raw data · common selected interval
                 </span>
               </div>
@@ -2398,7 +2409,18 @@
             </div>
           </div>
         </div>
-        <section class="panel profile-results" aria-labelledby="profiles-results-title">
+        <section id="series-panel" class="series-panel" hidden aria-labelledby="series-title">
+          <div class="panel profile-results">
+            <div class="profile-section-title"><h2 id="series-title" data-i18n="Series repeatability">Series repeatability</h2><span id="series-count" class="small muted" role="status"></span><button id="series-export" class="button secondary" disabled data-i18n="Export series report CSV">Export series report CSV</button></div>
+            <p id="series-small-sample" class="series-sample-note small muted" data-i18n="At least two tests are needed for standard deviation; potential outliers are marked from five tests. Small samples need careful interpretation.">At least two tests are needed for standard deviation; potential outliers are marked from five tests. Small samples need careful interpretation.</p>
+            <div class="profile-table-scroll" tabindex="0" role="region" aria-label="Series summary" data-i18n-aria-label="Series summary"><table id="series-summary"><thead></thead><tbody></tbody></table></div>
+          </div>
+          <div class="panel profile-results">
+            <div class="profile-section-title"><h2 data-i18n="Test deviations">Test deviations</h2><label class="series-metric-label"><span data-i18n="Deviation metric">Deviation metric</span><select id="series-metric"></select></label><button class="info-button" aria-label="About potential outliers" data-i18n-aria-label="About potential outliers" data-help="Potential outliers fall outside Q1 − 1.5 × IQR or Q3 + 1.5 × IQR, with at least five eligible values. Quartiles use linear interpolation. Flags suggest review, not failure, and never remove tests automatically. Standard deviation uses n − 1; coefficient of variation is SD / |mean| × 100% and is unavailable near zero mean." data-i18n-data-help="Potential outliers fall outside Q1 − 1.5 × IQR or Q3 + 1.5 × IQR, with at least five eligible values. Quartiles use linear interpolation. Flags suggest review, not failure, and never remove tests automatically. Standard deviation uses n − 1; coefficient of variation is SD / |mean| × 100% and is unavailable near zero mean.">i</button></div>
+            <div class="profile-table-scroll series-members-scroll" tabindex="0" role="region" aria-label="Test deviations" data-i18n-aria-label="Test deviations"><table id="series-members"><thead></thead><tbody></tbody></table></div>
+          </div>
+        </section>
+        <section id="profiles-results" class="panel profile-results" aria-labelledby="profiles-results-title">
           <div class="profile-section-title">
             <h2 id="profiles-results-title" data-i18n="Comparison results">
               Comparison results
@@ -2453,6 +2475,7 @@
             </div>
             <p class="profile-source-meta small muted">
             </p>
+              <label class="series-include" hidden><input data-field="included" type="checkbox" checked><span data-i18n="Include in series statistics">Include in series statistics</span></label>
             <div class="profile-event-grid">
               <label>
                 <span data-i18n="Ignition (s)">

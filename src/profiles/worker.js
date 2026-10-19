@@ -1,6 +1,7 @@
 import { parseCSV, sampleAt } from "../data.js";
 import { errorMessage } from "../messages.js";
 import { analyseProfile, profileMapping, compareProfiles } from "./model.js";
+import { analyseSeries } from "./series-model.js";
 
 // Full logs stay in the worker. Only bounded display curves cross the boundary.
 const sources = new Map();
@@ -46,7 +47,7 @@ async function handle(request) {
       } catch (error) { return { id: profile.id, error: errorMessage(error) }; }
     });
     const reference = records.find((record) => record.id === request.reference);
-    for (const record of records) {
+    for (const record of request.series ? [] : records) {
       if (!record.stats || !record.mapping || !reference?.stats || !reference.mapping) continue;
       const mapped = (item, event) => Number.isFinite(item.stats[event])
         ? item.mapping.offset + item.stats[event] * item.mapping.scale : null;
@@ -57,7 +58,29 @@ async function handle(request) {
       record.difference = compareProfiles(sources.get(reference.id).data, reference.mapping,
         sources.get(record.id).data, record.mapping, { start, end });
     }
-    return { records };
+    let series = null;
+    if (request.series) {
+      series = analyseSeries(request.profiles.map((profile) => ({ id: profile.id,
+        included: profile.included, data: sources.get(profile.id)?.data,
+        stats: profile.valid === false ? null : records.find((record) => record.id === profile.id)?.stats,
+      })), { alignment: request.alignment });
+      // Difference traces share the bounded display grid; scalar deviations
+      // are calculated independently from original selected-interval metrics.
+      series.curves = series.curve ? series.eligibleIds.map((id) => {
+        const record = records.find((item) => item.id === id), data = sources.get(id).data;
+        const points = series.curve.points.map((mean) => {
+          const time = (mean.t - record.mapping.offset) / record.mapping.scale;
+          const point = sampleAt(data, Math.max(data.start, Math.min(data.end, time)));
+          return point ? { t: mean.t, thrust: point.thrust - mean.thrust, pressure: point.pressure - mean.pressure, gapBefore: mean.gapBefore } : null;
+        }).filter(Boolean);
+        return { id, points };
+      }) : [];
+      series.zeroCurve = series.curve?.points.map((point) => ({ ...point,
+        thrustMin: point.thrustMin - point.thrust, thrustMax: point.thrustMax - point.thrust,
+        pressureMin: point.pressureMin - point.pressure, pressureMax: point.pressureMax - point.pressure,
+        thrust: 0, pressure: 0 })) ?? [];
+    }
+    return { records, series };
   }
   if (request.type === "sample") {
     return { samples: request.profiles.map(({ id, mapping }) => {

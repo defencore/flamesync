@@ -6,7 +6,9 @@ import { displayThrust, displayPressure } from "../units.js";
 import { createProfileWorker } from "./worker-client.js";
 import { createProfileChart } from "./chart.js";
 import { renderResults, exportResults, number } from "./results.js";
-import { profileExamples } from "./examples.js";
+import { profileExamples, seriesExamples } from "./examples.js";
+import { createSeriesView } from "./series-view.js";
+import { PROFILE_LIMIT, PROFILE_MAX_BYTES, WORKSPACE_MAX_BYTES } from "./limits.js";
 
 const COLORS = ["#2b61a5", "#bd6530", "#268477", "#885eae", "#b34c73", "#747c21", "#216e91", "#a45245", "#67718f", "#658638", "#a47b21", "#8e5586"];
 const own = (object, key) => Object.hasOwn(object, key);
@@ -24,13 +26,16 @@ export function createProfileWorkspace() {
   let reference = "", selected = "", sequence = 0, revision = 0, busy = 0,
     threshold = 5, noiseWindow = .1, view = null, crosshair = null, pick = null,
     hoverPending = false, hoverRevision = 0, noticeValue = null, noticeKind = "success", disposed = false,
-    pendingCount = 0, pendingBytes = 0;
+    pendingCount = 0, pendingBytes = 0, seriesResult = null;
   const panel = $("profile-analysis");
+  const comparisonHelp = $("profiles-difference-help").getAttribute("data-i18n-data-help");
   const metric = () => $("profiles-metric").value;
   const alignment = () => $("profiles-alignment").value;
   const units = () => ({ thrust: $("profiles-thrust-unit").value, pressure: $("profiles-pressure-unit").value });
   const visible = () => records.filter((record) => record.visible && record.mapping);
   const currentReference = () => records.find((record) => record.id === reference);
+  const isSeries = () => $("profiles-mode").value === "series";
+  const seriesView = createSeriesView({ onDisplayChange: () => update() });
   const options = { onViewChange(next) { view = next; draw(); }, onHover(x) { crosshair = x; draw(); sampleHover(); } };
   const chart = createProfileChart($("profiles-chart"), { ...options,
     onPick(x) { if (pick) commitMarker(pick.id, pick.event, x); },
@@ -50,6 +55,7 @@ export function createProfileWorkspace() {
     $("profiles-processing").hidden = busy === 0;
     $("profiles-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
     $("profiles-demo").disabled = busy > 0;
+    seriesView.update(seriesResult, records, { active: isSeries(), units: units(), alignment: alignment(), threshold, noiseWindow, busy: busy > 0 });
   }
   async function operation(run) {
     setBusy(1);
@@ -74,6 +80,9 @@ export function createProfileWorkspace() {
       count: record.count, rate: number(record.rate, 1), start: preciseSeconds(record.start), end: preciseSeconds(record.end),
     });
     field(record, "visible").checked = record.visible;
+    field(record, "included").checked = record.included;
+    field(record, "included").closest("label").hidden = !isSeries();
+    record.card.querySelector('[data-action="reference"]').hidden = isSeries();
     for (const key of ["start", "end"])
       if (!record.invalid?.has(key) && document.activeElement !== field(record, key)) {
         const value = own(record.options, key) ? record.options[key] : record.stats?.[key];
@@ -95,7 +104,7 @@ export function createProfileWorkspace() {
     const select = $("profiles-reference");
     select.replaceChildren(...records.map((record) => new Option(record.name, record.id)));
     select.value = reference; select.disabled = !records.length;
-    $("profiles-count").textContent = `${records.length} / 12`;
+    $("profiles-count").textContent = `${records.length} / ${PROFILE_LIMIT}`;
     $("profiles-clear").disabled = !records.length;
     $("profiles-results-empty").hidden = !!records.length;
     $("profiles-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
@@ -103,8 +112,19 @@ export function createProfileWorkspace() {
     $("profiles-pick-status").hidden = !pick;
     if (pick) $("profiles-pick-text").textContent = t(pick.event === "start" ? "Select ignition for {name} on the chart." : "Select burnout for {name} on the chart.", { name: records.find((record) => record.id === pick.id)?.name ?? "" });
     renderResults(records, currentReference(), units(), metric());
+    for (const id of ["series-panel", "series-name-label", "series-chart-controls", "series-folder"]) $(id).hidden = !isSeries();
+    $("profiles-results").hidden = isSeries();
+    $("profiles-reference").closest("label").hidden = isSeries();
+    $("profiles-trace").closest("label").hidden = isSeries();
+    setHeading("profiles-overlay-title", isSeries() ? "Series mean and spread" : "Profile overlay");
+    setHeading("profiles-difference-title", isSeries() ? "Deviations from series mean" : "Difference from reference");
+    const help = isSeries() ? "Each visible test is compared with the equal-weight series mean on the common aligned burn interval. The band is spread between tests, not an acceptance limit. Curves are display approximations; report metrics use original selected-interval values." : comparisonHelp;
+    $("profiles-difference-help").setAttribute("data-i18n-data-help", help);
+    $("profiles-difference-help").dataset.help = t(help);
+    seriesView.update(seriesResult, records, { active: isSeries(), units: units(), alignment: alignment(), threshold, noiseWindow, busy: busy > 0 });
     panel.querySelectorAll("select").forEach((select) => { select.title = select.selectedOptions[0]?.textContent ?? ""; });
-    $("profiles-legend").replaceChildren(...records.map((record) => {
+    const legendRecords = isSeries() && !seriesView.settings().showProfiles ? records.filter((record) => record.id === selected) : records;
+    $("profiles-legend").replaceChildren(...legendRecords.map((record) => {
       const button = textNode("button", record.name, "profile-legend-item");
       button.style.setProperty("--profile-color", record.color);
       button.classList.toggle("is-hidden", !record.visible); button.classList.toggle("is-selected", record.id === selected);
@@ -112,9 +132,15 @@ export function createProfileWorkspace() {
       button.onclick = () => { selected = record.id; update(); };
       return button;
     }));
+    if (isSeries() && seriesResult?.curve) {
+      const mean = textNode("span", t("Series mean and spread"), "profile-legend-item");
+      mean.style.setProperty("--profile-color", "#244e78"); $("profiles-legend").prepend(mean);
+    }
     draw();
   }
+  function setHeading(id, key) { $(id).dataset.i18n = key; $(id).textContent = t(key); }
   function domain() {
+    if (isSeries() && seriesResult?.curve) return { start: seriesResult.curve.start, end: seriesResult.curve.end };
     if (alignment() === "normalized") return { start: 0, end: 100 };
     let start = Infinity, end = -Infinity;
     for (const record of visible()) {
@@ -132,6 +158,25 @@ export function createProfileWorkspace() {
     }
     const xLabel = t(alignment() === "normalized" ? "Burn phase (%)" : alignment() === "ignition" ? "Time from ignition (s)" : alignment() === "burnout" ? "Time from burnout (s)" : "CSV time (s)");
     const settings = { metric: signal, unit: units()[signal], xLabel, yLabel: `${t(signal === "thrust" ? "Thrust" : "Pressure")} · ${units()[signal]}`, view: view ?? domain(), crosshair };
+    if (isSeries()) {
+      const display = seriesView.settings(), mean = seriesResult?.curve;
+      const individuals = candidates.filter((record) => display.showProfiles || record.id === selected);
+      const lines = individuals.map((record) => ({ id: record.id, name: record.name, color: record.color, points: record.stats.curves.raw, mapping: record.mapping }));
+      if (mean) lines.push({ id: "series-mean", name: t("Series mean"), color: "#244e78", lineWidth: 2.8, points: mean.points, mapping: { offset: 0, scale: 1 }, band: display.band });
+      chart.render({ ...settings, markers, series: lines });
+      const deltas = (seriesResult?.curves ?? []).filter((curve) => display.showProfiles || curve.id === selected).filter((curve) => records.find((record) => record.id === curve.id)?.visible).map((curve) => {
+        const record = records.find((item) => item.id === curve.id);
+        return { id: record.id, name: record.name, color: record.color, points: curve.points, mapping: { offset: 0, scale: 1 } };
+      });
+      if (mean) deltas.unshift({ id: "series-spread", name: t("Series spread around mean"), color: "#244e78", points: seriesResult.zeroCurve, mapping: { offset: 0, scale: 1 }, band: display.band });
+      difference.render({ ...settings, zeroLine: true, series: deltas });
+      $("profiles-difference-status").hidden = !!mean;
+      $("profiles-difference-status").textContent = t("No common eligible burn interval. Review events or align ignition or both events.");
+      $("profiles-empty").hidden = !!mean || !!individuals.length;
+      $("profiles-empty").lastElementChild.textContent = t("Add a series of CSV logs and review the burn events.");
+      $("profiles-chart").classList.toggle("is-picking", !!pick);
+      return;
+    }
     chart.render({ ...settings, markers, series: candidates.map((record) => ({ id: record.id, name: record.name, color: record.color, points: record.stats.curves[$("profiles-trace").value], mapping: record.mapping })) });
     const refVisible = currentReference()?.visible;
     const differences = refVisible ? candidates.filter((record) => record.id !== reference && record.difference).map((record) => ({ id: record.id, name: record.name, color: record.color, points: record.difference.points, mapping: { offset: 0, scale: 1 } })) : [];
@@ -145,8 +190,9 @@ export function createProfileWorkspace() {
   }
   async function analyze() {
     const version = ++revision;
-    const result = await worker.request({ type: "analyze", profiles: records.map((record) => ({ id: record.id, options: record.options })), threshold, noiseWindow, alignment: alignment(), reference });
+    const result = await worker.request({ type: "analyze", profiles: records.map((record) => ({ id: record.id, options: record.options, included: record.included, valid: !record.invalid.size })), threshold, noiseWindow, alignment: alignment(), reference, series: isSeries() });
     if (version !== revision || disposed) return;
+    seriesResult = result.series;
     for (const item of result.records) {
       const record = records.find((record) => record.id === item.id);
       if (!record) continue;
@@ -194,6 +240,7 @@ export function createProfileWorkspace() {
     card.addEventListener("change", (event) => {
       const key = event.target.dataset.field;
       if (key === "visible") { record.visible = event.target.checked; update(); return; }
+      if (key === "included") { record.included = event.target.checked; operation(analyze); return; }
       if (["timeUnit", "thrustUnit", "pressureUnit"].includes(key)) {
         const previous = record.settings, settings = { ...previous, [key]: event.target.value };
         record.settings = settings;
@@ -215,13 +262,13 @@ export function createProfileWorkspace() {
     $("profiles-list").append(card);
   }
   function setField(record, key, input) {
-    const empty = input.value === "", value = empty ? null : input.valueAsNumber;
-    const invalid = !empty && (!Number.isFinite(value) || (key === "mass" ? value <= 0 : value < record.start || value > record.end));
+    const empty = input.value === "" && !input.validity.badInput, value = empty ? null : input.valueAsNumber;
+    const invalid = input.validity.badInput || (!empty && (!Number.isFinite(value) || (key === "mass" ? value <= 0 : value < record.start || value > record.end)));
     input.setAttribute("aria-invalid", String(invalid));
     if (invalid) {
       record.invalid.add(key); record.error = message(key === "mass" ? "Enter a positive propellant mass or leave it empty." : "Choose a valid value inside the CSV time range.");
       record.stats = null; record.mapping = null; record.difference = null;
-      update(); return;
+      update(); if (isSeries()) operation(analyze); return;
     }
     record.invalid.delete(key);
     if (key === "mass") record.options.massKg = empty ? null : value / 1000;
@@ -242,8 +289,8 @@ export function createProfileWorkspace() {
     const accepted = [], failures = [];
     let total = pendingBytes + records.reduce((sum, record) => sum + record.size, 0);
     for (const file of files) {
-      if (records.length + pendingCount + accepted.length >= 12 || file.size > 20 * 1024 ** 2 || total + file.size > 100 * 1024 ** 2) {
-        failures.push(message("Add up to 12 CSV logs, each smaller than 20 MB (100 MB total).")); continue;
+      if (records.length + pendingCount + accepted.length >= PROFILE_LIMIT || file.size > PROFILE_MAX_BYTES || total + file.size > WORKSPACE_MAX_BYTES) {
+        failures.push(message("Add up to 50 CSV logs, each smaller than 20 MB (100 MB total).")); continue;
       }
       const settings = { timeUnit: $("profiles-source-time").value, thrustUnit: $("profiles-source-thrust").value, pressureUnit: $("profiles-source-pressure").value };
       accepted.push({ id: `p${++sequence}`, file, settings }); total += file.size;
@@ -255,7 +302,7 @@ export function createProfileWorkspace() {
       const result = await worker.request({ type: "import", entries: accepted });
       for (const item of result.records) {
         const record = { ...item, settings: accepted.find((entry) => entry.id === item.id).settings,
-          color: COLORS[(sequence + records.length) % COLORS.length], visible: true, options: {} };
+          color: records.length < COLORS.length ? COLORS[records.length] : `hsl(${(sequence * 137.508 + records.length * 51) % 360} 48% 40%)`, visible: true, included: true, options: {} };
         records.push(record); createCard(record);
       }
       for (const error of result.errors) failures.push(fileError(error.name, error.error));
@@ -284,9 +331,17 @@ export function createProfileWorkspace() {
   }
   $("profiles-add").onclick = () => $("profiles-input").click();
   $("profiles-input").onchange = (event) => { importFiles([...event.target.files]); event.target.value = ""; };
-  $("profiles-demo").onclick = () => importFiles(profileExamples());
+  $("profiles-demo").onclick = () => importFiles(isSeries() ? seriesExamples() : profileExamples());
+  $("profiles-mode").onchange = () => { view = null; cancelPick(); update(); operation(analyze); };
+  $("series-folder").onclick = () => $("series-folder-input").click();
+  $("series-folder-input").onchange = (event) => {
+    const files = [...event.target.files].filter((file) => /\.(csv|tsv|txt)$/i.test(file.name));
+    if (files.length) importFiles(files);
+    else notice(message("The selected folder contains no CSV, TSV, or TXT logs."), "error");
+    event.target.value = "";
+  };
   $("profiles-clear").onclick = () => {
-    revision++; worker.dispose(); records.splice(0); reference = ""; selected = ""; view = null;
+    revision++; worker.dispose(); records.splice(0); reference = ""; selected = ""; view = null; seriesResult = null;
     $("profiles-list").replaceChildren(); cancelPick(); notice(null); update();
   };
   const drop = $("profiles-drop");

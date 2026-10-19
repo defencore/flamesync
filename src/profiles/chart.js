@@ -126,19 +126,27 @@ export function createProfileChart(canvas, callbacks = {}) {
     const id = series.id ?? index;
     const offset = series.mapping?.offset ?? 0;
     const scale = series.mapping?.scale ?? 1;
+    const band = ["sd", "range"].includes(series.band) ? series.band : null;
+    const appearance = {
+      color: series.color || "#315f9b",
+      lineWidth: Number.isFinite(series.lineWidth) ? clamp(series.lineWidth, 0.5, 6) : 2,
+    };
     const existing = cache.get(id);
     if (
       existing?.points === points &&
       existing.metric === metric &&
       existing.unit === unit &&
       existing.offset === offset &&
-      existing.scale === scale
+      existing.scale === scale &&
+      existing.band === band
     )
-      return { ...existing, color: series.color || "#315f9b" };
+      return { ...existing, ...appearance };
     const convert = metric === "pressure" ? displayPressure : displayThrust;
     const xs = [],
       ys = [],
-      gaps = [];
+      gaps = [],
+      lowers = [],
+      uppers = [];
     let start = Infinity,
       end = -Infinity,
       minimum = Infinity,
@@ -161,6 +169,26 @@ export function createProfileChart(canvas, callbacks = {}) {
       gaps.push(gap || Boolean(point.gapBefore));
       minimum = Math.min(minimum, y);
       maximum = Math.max(maximum, y);
+      let lower = NaN,
+        upper = NaN;
+      if (band && Number.isFinite(point.n) && point.n >= 2) {
+        const deviation = point[`${metric}Sd`];
+        const low = band === "sd" ? value - deviation : point[`${metric}Min`];
+        const high = band === "sd" ? value + deviation : point[`${metric}Max`];
+        if (
+          (band !== "sd" || (Number.isFinite(deviation) && deviation >= 0)) &&
+          Number.isFinite(low) && Number.isFinite(high) && low <= high
+        ) {
+          lower = convert(low, unit);
+          upper = convert(high, unit);
+          if (Number.isFinite(lower) && Number.isFinite(upper)) {
+            minimum = Math.min(minimum, lower);
+            maximum = Math.max(maximum, upper);
+          } else lower = upper = NaN;
+        }
+      }
+      lowers.push(lower);
+      uppers.push(upper);
       gap = false;
     }
     const direction = xs.length > 1 && xs.at(-1) < xs[0] ? -1 : 1;
@@ -174,9 +202,12 @@ export function createProfileChart(canvas, callbacks = {}) {
       unit,
       offset,
       scale,
+      band,
       xs: Float64Array.from(xs),
       ys: Float64Array.from(ys),
       gaps: Uint8Array.from(gaps),
+      lowers: Float64Array.from(lowers),
+      uppers: Float64Array.from(uppers),
       start,
       end,
       minimum,
@@ -187,9 +218,10 @@ export function createProfileChart(canvas, callbacks = {}) {
       pathKey: "",
       path: null,
       dots: null,
+      bandPath: null,
     };
     cache.set(id, entry);
-    return { ...entry, color: series.color || "#315f9b" };
+    return { ...entry, ...appearance };
   }
 
   function measure() {
@@ -211,12 +243,16 @@ export function createProfileChart(canvas, callbacks = {}) {
     let minimum = Infinity,
       maximum = -Infinity;
     for (const series of prepared) {
-      const { xs, ys, gaps } = series;
+      const { xs, ys, gaps, lowers, uppers } = series;
       for (let index = 0; index < xs.length; index++) {
         const x = xs[index];
         if (x >= view.start && x <= view.end) {
           minimum = Math.min(minimum, ys[index]);
           maximum = Math.max(maximum, ys[index]);
+          if (Number.isFinite(lowers[index])) {
+            minimum = Math.min(minimum, lowers[index]);
+            maximum = Math.max(maximum, uppers[index]);
+          }
         }
         if (!index || gaps[index]) continue;
         const previous = xs[index - 1];
@@ -235,6 +271,11 @@ export function createProfileChart(canvas, callbacks = {}) {
               (ys[index] - ys[index - 1]);
           minimum = Math.min(minimum, value);
           maximum = Math.max(maximum, value);
+          if (Number.isFinite(lowers[index - 1]) && Number.isFinite(lowers[index])) {
+            const fraction = (boundary - previous) / (x - previous);
+            minimum = Math.min(minimum, lowers[index - 1] + fraction * (lowers[index] - lowers[index - 1]));
+            maximum = Math.max(maximum, uppers[index - 1] + fraction * (uppers[index] - uppers[index - 1]));
+          }
         }
       }
     }
@@ -290,7 +331,8 @@ export function createProfileChart(canvas, callbacks = {}) {
     if (entry.pathKey === key) return entry;
     const path = new Path2D();
     const dots = new Path2D();
-    const { xs, ys, gaps } = series;
+    const bandPath = new Path2D();
+    const { xs, ys, gaps, lowers, uppers } = series;
     let joined = false;
     let visibleCount = 0;
     for (const x of xs)
@@ -326,7 +368,33 @@ export function createProfileChart(canvas, callbacks = {}) {
         dots.arc(px, py, 2.2, 0, Math.PI * 2);
       }
     }
-    Object.assign(entry, { pathKey: key, path, dots });
+    if (series.band) {
+      let segment = [];
+      const closeBand = () => {
+        if (segment.length > 1) {
+          bandPath.moveTo(geometry.toX(xs[segment[0]]), geometry.toY(uppers[segment[0]]));
+          for (const index of segment.slice(1))
+            bandPath.lineTo(geometry.toX(xs[index]), geometry.toY(uppers[index]));
+          for (let index = segment.length - 1; index >= 0; index--)
+            bandPath.lineTo(geometry.toX(xs[segment[index]]), geometry.toY(lowers[segment[index]]));
+          bandPath.closePath();
+        }
+        segment = [];
+      };
+      for (let index = 1; index < xs.length; index++) {
+        const intersects = !gaps[index] &&
+          Number.isFinite(lowers[index - 1]) && Number.isFinite(lowers[index]) &&
+          Math.max(xs[index - 1], xs[index]) >= view.start &&
+          Math.min(xs[index - 1], xs[index]) <= view.end;
+        if (!intersects) closeBand();
+        else {
+          if (!segment.length) segment.push(index - 1);
+          segment.push(index);
+        }
+      }
+      closeBand();
+    }
+    Object.assign(entry, { pathKey: key, path, dots, bandPath });
     return entry;
   }
 
@@ -384,8 +452,17 @@ export function createProfileChart(canvas, callbacks = {}) {
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    ctx.save();
+    ctx.globalAlpha = 0.13;
+    for (const series of prepared) {
+      if (!series.band) continue;
+      ctx.fillStyle = series.color;
+      ctx.fill(pathFor(series, geometry).bandPath);
+    }
+    ctx.restore();
     for (const series of prepared) {
       const paths = pathFor(series, geometry);
+      ctx.lineWidth = series.lineWidth;
       ctx.strokeStyle = series.color;
       ctx.fillStyle = series.color;
       ctx.stroke(paths.path);
