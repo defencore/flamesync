@@ -130,6 +130,7 @@ export function createProfileChart(canvas, callbacks = {}) {
     const appearance = {
       color: series.color || "#315f9b",
       lineWidth: Number.isFinite(series.lineWidth) ? clamp(series.lineWidth, 0.5, 6) : 2,
+      dash: Array.isArray(series.dash) ? series.dash : [],
     };
     const existing = cache.get(id);
     if (
@@ -465,9 +466,11 @@ export function createProfileChart(canvas, callbacks = {}) {
       ctx.lineWidth = series.lineWidth;
       ctx.strokeStyle = series.color;
       ctx.fillStyle = series.color;
+      ctx.setLineDash(series.dash);
       ctx.stroke(paths.path);
       ctx.fill(paths.dots);
     }
+    ctx.setLineDash([]);
     ctx.restore();
     ctx.strokeStyle = "#cbd5df";
     ctx.lineWidth = 1;

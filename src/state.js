@@ -1,13 +1,14 @@
 import { defaultStyle, defaultMetadata } from "./overlay.js";
+import { DEFAULT_CSV_SETTINGS } from "./units.js";
 export function createEditorState() {
   return {
     file: null,
     data: null,
     csvFile: null,
     csvLoading: false,
-    csvSettings: { timeUnit: "auto", thrustUnit: "N", pressureUnit: "bar" },
+    csvSettings: { ...DEFAULT_CSV_SETTINGS },
     measurement: null,
-    showMeasurement: false,
+    showMeasurement: true,
     reduced: [],
     videoURL: "",
     duration: 0,

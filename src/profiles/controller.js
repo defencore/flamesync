@@ -9,6 +9,9 @@ import { renderResults, exportResults, number } from "./results.js";
 import { profileExamples, seriesExamples } from "./examples.js";
 import { createSeriesView } from "./series-view.js";
 import { PROFILE_LIMIT, PROFILE_MAX_BYTES, WORKSPACE_MAX_BYTES } from "./limits.js";
+import { DEFAULT_CSV_SETTINGS } from "../units.js";
+import { profileMapping } from "./model.js";
+import { renderTheoryComparison } from "./theory-view.js";
 
 const COLORS = ["#2b61a5", "#bd6530", "#268477", "#885eae", "#b34c73", "#747c21", "#216e91", "#a45245", "#67718f", "#658638", "#a47b21", "#8e5586"];
 const own = (object, key) => Object.hasOwn(object, key);
@@ -26,7 +29,8 @@ export function createProfileWorkspace() {
   let reference = "", selected = "", sequence = 0, revision = 0, busy = 0,
     threshold = 5, noiseWindow = .1, view = null, crosshair = null, pick = null,
     hoverPending = false, hoverRevision = 0, noticeValue = null, noticeKind = "success", disposed = false,
-    pendingCount = 0, pendingBytes = 0, seriesResult = null;
+    pendingCount = 0, pendingBytes = 0, seriesResult = null,
+    theoryState = null, workerTheoryData = null, workerTheoryStats = null, theoryCurves = null, importSequence = 0;
   const panel = $("profile-analysis");
   const comparisonHelp = $("profiles-difference-help").getAttribute("data-i18n-data-help");
   const metric = () => $("profiles-metric").value;
@@ -38,6 +42,10 @@ export function createProfileWorkspace() {
   const seriesView = createSeriesView({ onDisplayChange: () => update() });
   const options = { onViewChange(next) { view = next; draw(); }, onHover(x) { crosshair = x; draw(); sampleHover(); } };
   const chart = createProfileChart($("profiles-chart"), { ...options,
+    onPick(x) { if (pick) commitMarker(pick.id, pick.event, x); },
+    onMarkerChange(id, x) { const [recordId, event] = id.split(":"); commitMarker(recordId, event, x); },
+  });
+  const pressureChart = createProfileChart($("profiles-pressure-chart"), { ...options,
     onPick(x) { if (pick) commitMarker(pick.id, pick.event, x); },
     onMarkerChange(id, x) { const [recordId, event] = id.split(":"); commitMarker(recordId, event, x); },
   });
@@ -55,6 +63,7 @@ export function createProfileWorkspace() {
     $("profiles-processing").hidden = busy === 0;
     $("profiles-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
     $("profiles-demo").disabled = busy > 0;
+    $("profiles-theory-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
     seriesView.update(seriesResult, records, { active: isSeries(), units: units(), alignment: alignment(), threshold, noiseWindow, busy: busy > 0 });
   }
   async function operation(run) {
@@ -112,6 +121,7 @@ export function createProfileWorkspace() {
     $("profiles-pick-status").hidden = !pick;
     if (pick) $("profiles-pick-text").textContent = t(pick.event === "start" ? "Select ignition for {name} on the chart." : "Select burnout for {name} on the chart.", { name: records.find((record) => record.id === pick.id)?.name ?? "" });
     renderResults(records, currentReference(), units(), metric());
+    renderTheoryComparison(records, theoryState, units(), alignment(), busy > 0);
     for (const id of ["series-panel", "series-name-label", "series-chart-controls", "series-folder"]) $(id).hidden = !isSeries();
     $("profiles-results").hidden = isSeries();
     $("profiles-reference").closest("label").hidden = isSeries();
@@ -136,18 +146,37 @@ export function createProfileWorkspace() {
       const mean = textNode("span", t("Series mean and spread"), "profile-legend-item");
       mean.style.setProperty("--profile-color", "#244e78"); $("profiles-legend").prepend(mean);
     }
+    if (theoryActive()) {
+      const legend = textNode("span", `${t("Theory")} · ${theoryState.name}`, "profile-legend-item");
+      legend.style.setProperty("--profile-color", "#ab8119"); $("profiles-legend").append(legend);
+    }
     draw();
   }
   function setHeading(id, key) { $(id).dataset.i18n = key; $(id).textContent = t(key); }
   function domain() {
-    if (isSeries() && seriesResult?.curve) return { start: seriesResult.curve.start, end: seriesResult.curve.end };
     if (alignment() === "normalized") return { start: 0, end: 100 };
-    let start = Infinity, end = -Infinity;
-    for (const record of visible()) {
+    const common = isSeries() ? seriesResult?.curve : null;
+    let start = common?.start ?? Infinity, end = common?.end ?? -Infinity;
+    for (const record of common ? [] : visible()) {
       start = Math.min(start, record.mapping.offset + record.start * record.mapping.scale);
       end = Math.max(end, record.mapping.offset + record.end * record.mapping.scale);
     }
+    if (theoryActive()) {
+      const mapping = profileMapping(theoryState.stats, alignment());
+      if (mapping) { start = Math.min(start, mapping.offset + theoryState.data.start * mapping.scale); end = Math.max(end, mapping.offset + theoryState.data.end * mapping.scale); }
+    }
     return end > start ? { start, end } : { start: 0, end: 1 };
+  }
+  function theoryActive() { return !!(theoryState?.data && theoryState.enabled && theoryState.sourceValid && !theoryState.loading); }
+  function signalPlots(settings, lines, markers) {
+    const series = [...lines];
+    if (theoryActive()) {
+      const mapping = profileMapping(theoryState.stats, alignment());
+      const trace = isSeries() ? "raw" : $("profiles-trace").value;
+      if (mapping) series.push({ id: "theoretical-profile", name: t("Theory"), color: "#ab8119", lineWidth: 2.5, dash: [7, 4], points: (theoryCurves ?? theoryState.stats.curves)[trace], mapping });
+    }
+    chart.render({ ...settings, metric: "thrust", unit: units().thrust, yLabel: `${t("Thrust")} · ${units().thrust}`, markers, series });
+    pressureChart.render({ ...settings, metric: "pressure", unit: units().pressure, yLabel: `${t("Pressure")} · ${units().pressure}`, markers, series });
   }
   function draw() {
     if (disposed || panel.hidden) return;
@@ -163,7 +192,7 @@ export function createProfileWorkspace() {
       const individuals = candidates.filter((record) => display.showProfiles || record.id === selected);
       const lines = individuals.map((record) => ({ id: record.id, name: record.name, color: record.color, points: record.stats.curves.raw, mapping: record.mapping }));
       if (mean) lines.push({ id: "series-mean", name: t("Series mean"), color: "#244e78", lineWidth: 2.8, points: mean.points, mapping: { offset: 0, scale: 1 }, band: display.band });
-      chart.render({ ...settings, markers, series: lines });
+      signalPlots(settings, lines, markers);
       const deltas = (seriesResult?.curves ?? []).filter((curve) => display.showProfiles || curve.id === selected).filter((curve) => records.find((record) => record.id === curve.id)?.visible).map((curve) => {
         const record = records.find((item) => item.id === curve.id);
         return { id: record.id, name: record.name, color: record.color, points: curve.points, mapping: { offset: 0, scale: 1 } };
@@ -177,7 +206,7 @@ export function createProfileWorkspace() {
       $("profiles-chart").classList.toggle("is-picking", !!pick);
       return;
     }
-    chart.render({ ...settings, markers, series: candidates.map((record) => ({ id: record.id, name: record.name, color: record.color, points: record.stats.curves[$("profiles-trace").value], mapping: record.mapping })) });
+    signalPlots(settings, candidates.map((record) => ({ id: record.id, name: record.name, color: record.color, points: record.stats.curves[$("profiles-trace").value], mapping: record.mapping })), markers);
     const refVisible = currentReference()?.visible;
     const differences = refVisible ? candidates.filter((record) => record.id !== reference && record.difference).map((record) => ({ id: record.id, name: record.name, color: record.color, points: record.difference.points, mapping: { offset: 0, scale: 1 } })) : [];
     difference.render({ ...settings, zeroLine: true, series: differences });
@@ -190,9 +219,14 @@ export function createProfileWorkspace() {
   }
   async function analyze() {
     const version = ++revision;
-    const result = await worker.request({ type: "analyze", profiles: records.map((record) => ({ id: record.id, options: record.options, included: record.included, valid: !record.invalid.size })), threshold, noiseWindow, alignment: alignment(), reference, series: isSeries() });
+    if (workerTheoryData !== theoryState?.data || workerTheoryStats !== theoryState?.stats) {
+      workerTheoryData = theoryState?.data; workerTheoryStats = theoryState?.stats;
+      await worker.request({ type: "setTheory", theory: workerTheoryData && workerTheoryStats ? { data: workerTheoryData, stats: workerTheoryStats } : null });
+    }
+    const result = await worker.request({ type: "analyze", profiles: records.map((record) => ({ id: record.id, options: record.options, included: record.included, valid: !record.invalid.size })), threshold, noiseWindow, alignment: alignment(), reference, series: isSeries(), theory: theoryActive() });
     if (version !== revision || disposed) return;
     seriesResult = result.series;
+    theoryCurves = result.theoryCurves;
     for (const item of result.records) {
       const record = records.find((record) => record.id === item.id);
       if (!record) continue;
@@ -200,6 +234,7 @@ export function createProfileWorkspace() {
       record.stats = record.error ? null : item.stats ?? null;
       record.mapping = record.error ? null : item.mapping ?? null;
       record.difference = record.error ? null : item.difference ?? null;
+      record.theoryDifference = record.error ? null : item.theoryDifference ?? null;
       for (const key of ["start", "end", "mass", "noiseStart", "noiseEnd"]) {
         const rangeError = item.error?.key.startsWith(key.startsWith("noise") ? "Choose a noise interval" : "Choose ignition before burnout") && key !== "mass";
         field(record, key).setAttribute("aria-invalid", String(!!rangeError || record.invalid.has(key)));
@@ -285,14 +320,15 @@ export function createProfileWorkspace() {
     cancelPick(); setField(record, event, field(record, event));
   }
   function cancelPick() { pick = null; $("profiles-pick-status").hidden = true; draw(); }
-  async function importFiles(files) {
+  async function importFiles(files, settingsOverride = null) {
+    const importVersion = ++importSequence;
     const accepted = [], failures = [];
     let total = pendingBytes + records.reduce((sum, record) => sum + record.size, 0);
     for (const file of files) {
       if (records.length + pendingCount + accepted.length >= PROFILE_LIMIT || file.size > PROFILE_MAX_BYTES || total + file.size > WORKSPACE_MAX_BYTES) {
         failures.push(message("Add up to 50 CSV logs, each smaller than 20 MB (100 MB total).")); continue;
       }
-      const settings = { timeUnit: $("profiles-source-time").value, thrustUnit: $("profiles-source-thrust").value, pressureUnit: $("profiles-source-pressure").value };
+      const settings = settingsOverride ? { ...settingsOverride } : { timeUnit: $("profiles-source-time").value, thrustUnit: $("profiles-source-thrust").value, pressureUnit: $("profiles-source-pressure").value };
       accepted.push({ id: `p${++sequence}`, file, settings }); total += file.size;
     }
     pendingCount += accepted.length;
@@ -307,7 +343,7 @@ export function createProfileWorkspace() {
       }
       for (const error of result.errors) failures.push(fileError(error.name, error.error));
       view = null; update(); await analyze();
-      notice(failures.length ? failures : message("{count} profiles loaded. Review the detected burn events.", { count: result.records.length }), failures.length ? "error" : "success");
+      if (importVersion === importSequence) notice(failures.length ? failures : message("{count} profiles loaded. Review the detected burn events.", { count: result.records.length }), failures.length ? "error" : "success");
     });
     pendingCount -= accepted.length; pendingBytes -= bytes;
   }
@@ -321,9 +357,8 @@ export function createProfileWorkspace() {
       const { samples } = await worker.request({ type: "sample", x, profiles: visible().map(({ id, mapping }) => ({ id, mapping })) });
       if (version !== hoverRevision) return;
       $("profiles-hover").replaceChildren(...samples.filter((sample) => sample.point).map((sample) => {
-        const record = records.find((record) => record.id === sample.id), signal = metric();
-        const value = signal === "thrust" ? displayThrust(sample.point.thrust, units().thrust) : displayPressure(sample.point.pressure, units().pressure);
-        return textNode("span", `${record.name}: ${number(value)} ${units()[signal]} · ${t("Source time")} ${preciseSeconds(sample.time)} s`);
+        const record = records.find((record) => record.id === sample.id);
+        return textNode("span", `${record.name}: ${number(displayThrust(sample.point.thrust, units().thrust))} ${units().thrust} · ${number(displayPressure(sample.point.pressure, units().pressure))} ${units().pressure} · ${t("Source time")} ${preciseSeconds(sample.time)} s`);
       }));
       if (!$("profiles-hover").childElementCount) $("profiles-hover").textContent = t("No samples at this time.");
     } catch { /* A cleared workspace cancels pending readouts. */ }
@@ -331,7 +366,7 @@ export function createProfileWorkspace() {
   }
   $("profiles-add").onclick = () => $("profiles-input").click();
   $("profiles-input").onchange = (event) => { importFiles([...event.target.files]); event.target.value = ""; };
-  $("profiles-demo").onclick = () => importFiles(isSeries() ? seriesExamples() : profileExamples());
+  $("profiles-demo").onclick = () => importFiles(isSeries() ? seriesExamples() : profileExamples(), DEFAULT_CSV_SETTINGS);
   $("profiles-mode").onchange = () => { view = null; cancelPick(); update(); operation(analyze); };
   $("series-folder").onclick = () => $("series-folder-input").click();
   $("series-folder-input").onchange = (event) => {
@@ -341,7 +376,8 @@ export function createProfileWorkspace() {
     event.target.value = "";
   };
   $("profiles-clear").onclick = () => {
-    revision++; worker.dispose(); records.splice(0); reference = ""; selected = ""; view = null; seriesResult = null;
+    revision++; importSequence++; worker.dispose(); records.splice(0); reference = ""; selected = ""; view = null; seriesResult = null;
+    workerTheoryData = null; workerTheoryStats = null;
     $("profiles-list").replaceChildren(); cancelPick(); notice(null); update();
   };
   const drop = $("profiles-drop");
@@ -368,5 +404,5 @@ export function createProfileWorkspace() {
   document.addEventListener("keydown", onKey);
   document.addEventListener("flamesync:language", onLanguage);
   update();
-  return { activate: draw, dispose() { disposed = true; worker.dispose(); chart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); } };
+  return { activate: draw, setTheory(next) { const previous = theoryState; theoryState = next; if (previous?.data !== next.data || previous?.stats !== next.stats || previous?.enabled !== next.enabled || previous?.sourceValid !== next.sourceValid || previous?.loading !== next.loading) operation(analyze); else update(); }, dispose() { disposed = true; worker.dispose(); chart.dispose(); pressureChart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); } };
 }

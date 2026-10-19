@@ -1,0 +1,250 @@
+.theory-panel {
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.theory-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 15px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.theory-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.theory-panel > summary::before {
+  content: "›";
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 400;
+  transform: rotate(0);
+}
+
+.theory-panel[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#theory-name {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theory-body {
+  min-width: 0;
+  padding: 0 15px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.theory-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px 14px;
+  margin: 12px 0;
+}
+
+.theory-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.theory-toggle > input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.theory-file-row > .info-button {
+  margin-left: auto;
+}
+
+.theory-input-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px 14px;
+  max-width: 940px;
+}
+
+.theory-input-grid > label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 5px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.theory-input-grid input,
+.theory-input-grid select {
+  width: 100%;
+  min-width: 0;
+  height: 33px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.theory-input-grid > .text-button {
+  justify-self: start;
+  min-height: 33px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+
+.theory-panel [aria-invalid="true"] {
+  border-color: #b45a50;
+  background: #fff8f7;
+}
+
+.theory-timing {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.theory-timing > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.theory-timing[open] > summary {
+  margin-bottom: 10px;
+}
+
+#theory-status {
+  margin-top: 11px;
+  overflow-wrap: anywhere;
+}
+
+#theory-status:empty {
+  display: none;
+}
+
+.profile-pressure-wrap {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+#profiles-pressure-chart {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 240px;
+  outline-offset: -3px;
+}
+
+#profiles-theory-panel {
+  min-width: 0;
+}
+
+#profiles-theory-results {
+  width: 100%;
+  min-width: 800px;
+  border-collapse: collapse;
+  color: var(--ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+#profiles-theory-results th,
+#profiles-theory-results td {
+  padding: 10px 11px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+}
+
+#profiles-theory-results th {
+  background: #f5f7fa;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+#profiles-theory-results th:first-child,
+#profiles-theory-results td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  max-width: 240px;
+  overflow: hidden;
+  background: var(--surface);
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+#profiles-theory-results th:first-child {
+  background: #f5f7fa;
+}
+
+#profiles-theory-results th small {
+  display: block;
+  margin-top: 3px;
+  font-weight: 400;
+}
+
+#profiles-theory-results tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 600px) {
+  .theory-panel > summary {
+    flex-wrap: wrap;
+    gap: 5px 9px;
+    padding: 11px 12px;
+    font-size: 12px;
+  }
+
+  #theory-name {
+    flex-basis: 100%;
+    margin-left: 18px;
+    font-size: 11px;
+  }
+
+  #theory-name:empty {
+    display: none;
+  }
+
+  .theory-body {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .theory-file-row {
+    gap: 9px;
+  }
+
+  .theory-input-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .theory-timing .theory-input-grid > label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  #profiles-pressure-chart {
+    height: 220px;
+  }
+}

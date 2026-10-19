@@ -9,6 +9,7 @@ export { compositionGeometry } from "./composition-layout.js";
 /**
  * @param {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} ctx
  * @param {number} width @param {number} height
+ * @param {{data:import('./data.js').BurnData,reduced:import('./data.js').DataPoint[],name:string,offset:number,timeScale:number}|null} [theory]
  * @param {((ctx:CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, x:number, y:number, width:number, height:number) => void) | null} paintVideo
  * @param {{start:number,end:number}|null} measurement
  */
@@ -28,6 +29,7 @@ export function drawComposition(
   metadata,
   sourceInfo,
   measurement = null,
+  theory = null,
 ) {
   ctx.save();
   const geometry = compositionGeometry(
@@ -69,6 +71,7 @@ export function drawComposition(
     timeScale,
     style.layout === "full" ? { ...style, opacity: 100 } : style,
     measurement,
+    theory,
   );
   drawSourceStrip(
     ctx,

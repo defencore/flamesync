@@ -1,4 +1,5 @@
 import { parseCSV, clamp } from "./data.js";
+import { DEFAULT_CSV_SETTINGS, displayThrust } from "./units.js";
 
 export function demoCSV() {
   const rows = ["time_ms;thrust;pressure"];
@@ -25,7 +26,7 @@ export function demoCSV() {
           0.3 * Math.sin(t * 51)),
     );
     rows.push(
-      `${(t * 1000).toFixed(3)};${force.toFixed(3)};${pressure.toFixed(3)}`,
+      `${(t * 1000).toFixed(3)};${displayThrust(force, DEFAULT_CSV_SETTINGS.thrustUnit).toFixed(6)};${pressure.toFixed(3)}`,
     );
   }
   return rows.join("\n");
@@ -105,7 +106,7 @@ export function drawDemo(ctx, w, h, time) {
   ctx.font = "9px monospace";
   ctx.fillText("LOAD CELL", 110, 126);
   ctx.fillText("PRESSURE TAP", 200, 170);
-  const data = (parseCSVCache ??= parseCSV(demoCSV()));
+  const data = (parseCSVCache ??= parseCSV(demoCSV(), DEFAULT_CSV_SETTINGS));
   const local = time - 1;
   const nearest = data.points[Math.round(clamp(local * 60, 0, 330))];
   const strength = nearest.thrust / 640;

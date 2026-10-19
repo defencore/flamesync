@@ -14,14 +14,61 @@ import {
   thrustFactor,
   pressureFactor,
   sourceTimestamp,
+  DEFAULT_CSV_SETTINGS,
+  DEFAULT_DISPLAY_UNITS,
 } from "../src/units.js";
 import { detectBurnInterval } from "../src/measurement.js";
+import { createEditorState } from "../src/state.js";
+import { demoCSV } from "../src/demo.js";
+import { profileExamples, seriesExamples } from "../src/profiles/examples.js";
 
 const close = (actual, expected) =>
   assert.ok(
     Math.abs(actual - expected) <= Math.max(1e-10, Math.abs(expected) * 1e-12),
     `${actual} vs ${expected}`,
   );
+
+test("application CSV and display defaults use kilogram-force and bar without changing canonical data", () => {
+  assert.deepEqual(DEFAULT_CSV_SETTINGS, {
+    timeUnit: "auto", thrustUnit: "kgf", pressureUnit: "bar",
+  });
+  assert.deepEqual(DEFAULT_DISPLAY_UNITS, { thrustUnit: "kgf", pressureUnit: "bar" });
+  assert.equal(Object.isFrozen(DEFAULT_CSV_SETTINGS), true);
+  assert.equal(Object.isFrozen(DEFAULT_DISPLAY_UNITS), true);
+  const state = createEditorState();
+  assert.deepEqual(state.csvSettings, DEFAULT_CSV_SETTINGS);
+  assert.notEqual(state.csvSettings, DEFAULT_CSV_SETTINGS);
+  assert.equal(state.showMeasurement, true);
+  state.csvSettings.thrustUnit = "N";
+  assert.equal(createEditorState().csvSettings.thrustUnit, "kgf");
+
+  const data = parseCSV("time_ms;thrust;pressure\n0;0;0\n100;10;2\n200;0;0", DEFAULT_CSV_SETTINGS);
+  close(data.peakThrust, 98.0665);
+  close(data.peakPressure, 2);
+  close(data.impulse, 9.80665);
+  close(displayThrust(data.peakThrust, DEFAULT_DISPLAY_UNITS.thrustUnit), 10);
+  close(displayPressure(data.peakPressure, DEFAULT_DISPLAY_UNITS.pressureUnit), 2);
+  // The reusable parser retains its explicit SI default for numerical callers.
+  close(parseCSV("time_s;thrust;pressure\n0;10;2\n1;10;2").peakThrust, 10);
+});
+
+test("synthetic video and profile CSVs use application source units while preserving physical force", async () => {
+  const video = parseCSV(demoCSV(), DEFAULT_CSV_SETTINGS);
+  const expectedVideoForce = 430 + 210 * Math.exp(-(((1 - 0.86) / 0.19) ** 2)) - 28 + 6 * Math.sin(81);
+  assert.ok(Math.abs(sampleAt(video, 1).thrust - expectedVideoForce) < 0.00001);
+
+  const profiles = profileExamples();
+  const series = seriesExamples();
+  for (const file of [...profiles, ...series]) {
+    const data = parseCSV(await file.text(), DEFAULT_CSV_SETTINGS);
+    assert.equal(data.sourceUnits.thrust, "kgf");
+    assert.equal(data.sourceUnits.pressure, "bar");
+    assert.ok(data.peakThrust > 95 && data.peakThrust < 125);
+  }
+  const firstProfile = parseCSV(await profiles[0].text(), DEFAULT_CSV_SETTINGS);
+  const expectedProfileForce = 100 + 0.7 * Math.sin(1.5 * 98);
+  assert.ok(Math.abs(sampleAt(firstProfile, 1.5).thrust - expectedProfileForce) < 0.0000001);
+});
 
 test("milliseconds and microseconds preserve the same absolute logger clock and burn interval", () => {
   const milliseconds = parseCSV(

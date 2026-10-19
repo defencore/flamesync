@@ -4,6 +4,7 @@ import { $ } from "./dom.js";
 import { formatTime } from "./data.js";
 import { demoCSV, createDemo } from "./demo.js";
 import { downloadBlob } from "./files.js";
+import { DEFAULT_CSV_SETTINGS } from "./units.js";
 export function createSourceController(editor) {
   const { state, video } = editor;
   let videoVersion = 0,
@@ -318,7 +319,7 @@ export function createSourceController(editor) {
       await loadCSV(
         new File([demo.csv], "static-fire-demo.csv", { type: "text/csv" }),
         {
-          settings: { timeUnit: "auto", thrustUnit: "N", pressureUnit: "bar" },
+          settings: { ...DEFAULT_CSV_SETTINGS },
         },
       );
       if (state.file === demo.file) {

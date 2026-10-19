@@ -1,13 +1,11 @@
 import { clamp, sampleAt, dataTimeAt, formatValue } from "./data.js";
-import { drawIntervalMarkers } from "./measurement-chart.js";
-import { displayThrust, displayPressure } from "./units.js";
+import { displayThrust, displayPressure, DEFAULT_DISPLAY_UNITS } from "./units.js";
 import { presentationScale, telemetryHeight } from "./composition-layout.js";
 import { textLines } from "./canvas-text.js";
 
 export const defaultStyle = {
   title: "STATIC FIRE TEST",
-  thrustUnit: "N",
-  pressureUnit: "bar",
+  ...DEFAULT_DISPLAY_UNITS,
   theme: "dark",
   height: 25,
   opacity: 90,
@@ -47,12 +45,25 @@ export function overlayGeometry(w, h, style) {
   const top = height - panelHeight;
   const metricsWidth = width * 0.25 - 12;
   const divider = width - metricsWidth - 12;
-  const chartRight = divider - 72;
+  const chartRight = divider - 28;
   const chart = {
     x: 82,
-    y: top + 67,
+    y: top + 62,
     width: chartRight - 82,
-    height: panelHeight - 161,
+    height: panelHeight - 152,
+  };
+  const horizontal = style.showPressure && chart.height < 200 && chart.width >= 900;
+  const gap = horizontal ? 88 : 28;
+  const plotHeight = horizontal ? chart.height : (chart.height - gap) / 2;
+  const plotWidth = horizontal ? (chart.width - gap) / 2 : chart.width;
+  const plots = {
+    thrust: { ...chart, width: style.showPressure ? plotWidth : chart.width,
+      height: style.showPressure ? plotHeight : chart.height },
+    pressure: style.showPressure
+      ? { ...chart, x: horizontal ? chart.x + plotWidth + gap : chart.x,
+          y: horizontal ? chart.y : chart.y + plotHeight + gap,
+          width: plotWidth, height: plotHeight }
+      : null,
   };
   return {
     scale,
@@ -61,6 +72,8 @@ export function overlayGeometry(w, h, style) {
     panelHeight,
     top,
     chart,
+    plots,
+    orientation: style.showPressure ? horizontal ? "horizontal" : "vertical" : "single",
     footer: { x: 0, y: height - 64, width, height: 64 },
     metrics: {
       x: divider + 26,
@@ -116,6 +129,67 @@ function text(
   ctx.fillText(maxWidth === undefined ? content : textLines(ctx, content, maxWidth, 1)[0] || "", x, y);
 }
 
+// A theoretical trace has its own source clock. Its mapping affects only the
+// comparison drawing, never the measured sample, impulse, or burn duration.
+export function overlayTimeDomain(data, theory = null) {
+  const starts = [];
+  const ends = [];
+  if (data) {
+    starts.push(data.start);
+    ends.push(data.end);
+  }
+  if (theory?.data && Number.isFinite(theory.offset) && theory.timeScale > 0) {
+    starts.push(theory.offset + theory.data.start * theory.timeScale);
+    ends.push(theory.offset + theory.data.end * theory.timeScale);
+  }
+  const start = starts.length ? Math.min(...starts) : 0;
+  const end = ends.length ? Math.max(...ends) : 1;
+  return { start, end, duration: end - start || 1 };
+}
+
+function sensorAxis(data, theory, key, unit) {
+  const convert = key === "thrust" ? displayThrust : displayPressure;
+  const minimum = key === "thrust" ? "minThrust" : "minPressure";
+  const maximum = key === "thrust" ? "peakThrust" : "peakPressure";
+  return chartAxis(
+    convert(Math.min(data?.[minimum] ?? 0, theory?.data?.[minimum] ?? 0), unit),
+    convert(Math.max(data?.[maximum] ?? 0, theory?.data?.[maximum] ?? 0), unit),
+  );
+}
+
+function drawBurnMarkers(ctx, box, startX, endX, light) {
+  const color = light ? "#285ea8" : "#b2ccf5";
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.x, box.y, box.width, box.height);
+  ctx.clip();
+  ctx.fillStyle = light ? "#285ea80a" : "#9bbff50a";
+  ctx.fillRect(startX, box.y, endX - startX, box.height);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  for (const position of [startX, endX]) {
+    ctx.beginPath();
+    ctx.moveTo(position, box.y);
+    ctx.lineTo(position, box.y + box.height);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  let startLabelX = clamp(startX + 9, box.x + 9, box.x + box.width - 9);
+  let endLabelX = clamp(endX - 9, box.x + 9, box.x + box.width - 9);
+  if (endLabelX - startLabelX < 20) {
+    const center = clamp((startX + endX) / 2, box.x + 20, box.x + box.width - 20);
+    startLabelX = center - 11;
+    endLabelX = center + 11;
+  }
+  for (const [label, x] of [["A", startLabelX], ["B", endLabelX]]) {
+    ctx.fillStyle = light ? "#f6f8faed" : "#101820ed";
+    ctx.fillRect(x - 8, box.y + 1, 16, 17);
+    text(ctx, label, x, box.y + 14, 13, color, 650, "center");
+  }
+  ctx.restore();
+}
+
 export function drawOverlay(
   ctx,
   w,
@@ -127,10 +201,11 @@ export function drawOverlay(
   timeScale,
   style,
   measurement = null,
+  theory = null,
 ) {
   ctx.save();
   const geometry = overlayGeometry(w, h, style);
-  const { scale, width, height, panelHeight, top, chart, metrics } = geometry;
+  const { scale, width, height, panelHeight, top, chart, plots, metrics } = geometry;
   ctx.scale(scale, scale);
   ctx.beginPath();
   ctx.rect(0, top, width, panelHeight);
@@ -141,6 +216,8 @@ export function drawOverlay(
   const grid = light ? "rgba(34,50,67,.10)" : "rgba(219,229,242,.11)";
   const thrustColor = light ? "#ad4f29" : "#e9a56c";
   const pressureColor = light ? "#177f85" : "#69c9c7";
+  const theoryColor = light ? "#87620a" : "#f3d05c";
+  const background = light ? "#f6f8fa" : "#101820";
   ctx.fillStyle = light
     ? `rgba(246,248,250,${style.opacity / 100})`
     : `rgba(16,24,32,${style.opacity / 100})`;
@@ -162,188 +239,159 @@ export function drawOverlay(
     Math.abs(timeScale - 1) > 1e-8
       ? `TIME STRETCH ${Number((timeScale * 100).toFixed(3))}% · ${phase}`
       : phase;
-  text(ctx, status, width - 26, top + 29, 16, muted, 500, "right");
-  const statusWidth = ctx.measureText(status).width;
+  const validMeasurement = data && measurement &&
+    Number.isFinite(measurement.start) && Number.isFinite(measurement.end) &&
+    measurement.end > measurement.start;
+  const statusLimit = width * (validMeasurement ? 0.34 : 0.48);
+  text(ctx, status, width - 26, top + 28, 15, muted, 500, "right", statusLimit);
   text(
     ctx,
     style.title.slice(0, 46),
     26,
     top + 28,
-    20,
+    19,
     fg,
     650,
     "left",
-    Math.max(1, width - statusWidth - 84),
+    width * (validMeasurement ? 0.3 : 0.45) - 26,
   );
-  const chartX = chart.x;
-  const chartRight = chart.x + chart.width;
-  const chartY = chart.y;
-  const chartBottom = chart.y + chart.height;
-  const chartW = chart.width;
-  const chartH = chart.height;
-  const tSpan = data?.duration || 1;
-  const x = (time) => chartX + ((time - (data?.start ?? 0)) / tSpan) * chartW;
-  const thrustAxis = chartAxis(
-    displayThrust(data?.minThrust ?? 0, style.thrustUnit),
-    displayThrust(data?.peakThrust ?? 0, style.thrustUnit),
-  );
-  const pressureAxis = chartAxis(
-    displayPressure(data?.minPressure ?? 0, style.pressureUnit),
-    displayPressure(data?.peakPressure ?? 0, style.pressureUnit),
-  );
-  const y = (v, key) => {
-    const axis = key === "thrust" ? thrustAxis : pressureAxis;
-    const value =
-      key === "thrust"
-        ? displayThrust(v, style.thrustUnit)
-        : displayPressure(v, style.pressureUnit);
-    return chartBottom - ((value - axis.min) / (axis.max - axis.min)) * chartH;
-  };
-  ctx.lineWidth = 1;
-  for (const tick of thrustAxis.ticks) {
-    const gy =
-      chartBottom -
-      ((tick - thrustAxis.min) / (thrustAxis.max - thrustAxis.min)) * chartH;
-    ctx.strokeStyle = grid;
-    ctx.beginPath();
-    ctx.moveTo(chartX, gy);
-    ctx.lineTo(chartRight, gy);
-    ctx.stroke();
+  if (validMeasurement)
     text(
       ctx,
-      data ? axisLabel(tick) : "—",
-      chartX - 10,
-      gy + 4,
-      17,
-      thrustColor,
-      400,
-      "right",
-    );
-  }
-  if (style.showPressure) {
-    for (const tick of pressureAxis.ticks) {
-      const gy =
-        chartBottom -
-        ((tick - pressureAxis.min) / (pressureAxis.max - pressureAxis.min)) * chartH;
-      text(
-        ctx,
-        data ? axisLabel(tick) : "—",
-        chartRight + 9,
-        gy + 4,
-        17,
-        pressureColor,
-        400,
-        "left",
-        60,
-      );
-    }
-  }
-  text(ctx, `Thrust · ${style.thrustUnit}`, chartX, chartY - 15, 17, thrustColor, 600);
-  if (style.showPressure)
-    text(
-      ctx,
-      `Pressure · ${style.pressureUnit}`,
-      chartRight,
-      chartY - 15,
-      17,
-      pressureColor,
-      600,
-      "right",
-    );
-  for (let i = 0; i <= 4; i++) {
-    text(
-      ctx,
-      data
-        ? `${Number((data.start + (data.duration * i) / 4).toFixed(data.duration < 1 ? 3 : 2))} s`
-        : "",
-      chartX + (chartW * i) / 4,
-      chartBottom + 20,
+      `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
+      width * 0.48,
+      top + 28,
       16,
-      muted,
-      400,
+      fg,
+      600,
       "center",
+      width * 0.3,
     );
+
+  const domain = overlayTimeDomain(data, theory);
+  const x = (time, box) => box.x + ((time - domain.start) / domain.duration) * box.width;
+  const keys = style.showPressure ? ["thrust", "pressure"] : ["thrust"];
+  const convert = (value, key) => key === "thrust"
+    ? displayThrust(value, style.thrustUnit)
+    : displayPressure(value, style.pressureUnit);
+  const axes = {
+    thrust: sensorAxis(data, theory, "thrust", style.thrustUnit),
+    pressure: sensorAxis(data, theory, "pressure", style.pressureUnit),
+  };
+  const y = (value, key) => {
+    const box = plots[key];
+    const axis = axes[key];
+    return box.y + box.height -
+      ((convert(value, key) - axis.min) / (axis.max - axis.min)) * box.height;
+  };
+  const colors = { thrust: thrustColor, pressure: pressureColor };
+  for (const key of keys) {
+    const box = plots[key];
+    const axis = axes[key];
+    const color = colors[key];
+    const unit = key === "thrust" ? style.thrustUnit : style.pressureUnit;
+    const ticks = box.height < 75 ? [axis.min, axis.max] : axis.ticks;
+    ctx.lineWidth = 1;
+    for (const tick of ticks) {
+      const gy = box.y + box.height -
+        ((tick - axis.min) / (axis.max - axis.min)) * box.height;
+      ctx.strokeStyle = grid;
+      ctx.beginPath();
+      ctx.moveTo(box.x, gy);
+      ctx.lineTo(box.x + box.width, gy);
+      ctx.stroke();
+      text(ctx, data || theory?.data ? axisLabel(tick) : "—", box.x - 10,
+        gy + 4, 15, color, 400, "right");
+    }
+    text(ctx, `${key === "thrust" ? "Thrust" : "Pressure"} · ${unit}`,
+      box.x, box.y - 10, 16, color, 600);
   }
-  const path = (key, color, alpha, until) => {
+
+  if (theory?.data) {
+    const legendY = plots.thrust.y - 10;
+    const right = chart.x + chart.width;
+    text(ctx, "Measured", right - 125, legendY, 14, muted, 500, "right");
+    text(ctx, "Theory", right, legendY, 14, theoryColor, 600, "right");
+    ctx.strokeStyle = theoryColor;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(right - 79, legendY - 4);
+    ctx.lineTo(right - 52, legendY - 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  const timeAxes = geometry.orientation === "horizontal"
+    ? [plots.thrust, plots.pressure]
+    : [style.showPressure ? plots.pressure : plots.thrust];
+  for (const box of timeAxes) {
+    const bottom = box.y + box.height;
+    text(ctx, "CSV time", box.x - 12, bottom + 22, 12, muted, 500, "right");
+    for (let i = 0; i <= 4; i++)
+      text(ctx, data || theory?.data
+        ? `${Number((domain.start + (domain.duration * i) / 4).toFixed(domain.duration < 1 ? 3 : 2))} s`
+        : "", box.x + (box.width * i) / 4, bottom + 22,
+        14, muted, 400, i === 0 ? "left" : i === 4 ? "right" : "center");
+  }
+
+  const path = (key, points, mapping, color, alpha, until, dashed = false) => {
+    const box = plots[key];
     ctx.save();
     ctx.beginPath();
-    ctx.rect(chartX, chartY - 2, chartW, chartH + 4);
+    ctx.rect(box.x, box.y - 2, box.width, box.height + 4);
     ctx.clip();
     if (until !== Infinity) {
       ctx.beginPath();
-      ctx.rect(
-        chartX,
-        chartY - 2,
-        clamp(x(until) - chartX, 0, chartW),
-        chartH + 4,
-      );
+      ctx.rect(box.x, box.y - 2, clamp(x(until, box) - box.x, 0, box.width), box.height + 4);
       ctx.clip();
     }
     ctx.globalAlpha = alpha;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2.3;
+    ctx.lineWidth = dashed ? 2 : 2.4;
     ctx.lineJoin = "round";
+    ctx.setLineDash(dashed ? [6, 3] : []);
     ctx.beginPath();
-    reduced.forEach((p, i) => {
-      const gap = p.gapBefore;
-      if (!i || gap) ctx.moveTo(x(p.t), y(p[key], key));
-      else ctx.lineTo(x(p.t), y(p[key], key));
+    points.forEach((point, i) => {
+      const px = x(mapping.offset + point.t * mapping.scale, box);
+      const py = y(point[key], key);
+      if (!i || point.gapBefore) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
     });
     ctx.stroke();
     ctx.restore();
   };
-  if (!data) {
-    // Empty telemetry uses the same panel geometry as a loaded CSV.
-    const center = chartX + chartW / 2;
-    const centerY = chartY + chartH / 2;
-    ctx.fillStyle = light ? "#f6f8fa" : "#101820";
-    ctx.fillRect(chartX, centerY - 25, chartW, 50);
-    text(
-      ctx,
-      "Waiting for CSV data",
-      center,
-      centerY - 3,
-      20,
-      fg,
-      550,
-      "center",
-    );
-  }
-  if (data && style.trace === "full") {
-    path("thrust", thrustColor, 0.3, Infinity);
-    if (style.showPressure) path("pressure", pressureColor, 0.3, Infinity);
-  }
-  if (data) path("thrust", thrustColor, 1, t);
-  if (data && style.showPressure) path("pressure", pressureColor, 1, t);
-  if (data && measurement)
-    drawIntervalMarkers(
-      ctx,
-      { x: chartX, y: chartY, width: chartW, height: chartH },
-      x(measurement.start),
-      x(measurement.end),
-      `Δt ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
-      light,
-    );
-  if (data && t >= data.start && t <= data.end) {
-    ctx.strokeStyle = fg;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 4]);
-    ctx.beginPath();
-    ctx.moveTo(x(t), chartY);
-    ctx.lineTo(x(t), chartBottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    if (sample) {
-      for (const [key, color] of [
-        ["thrust", thrustColor],
-        ["pressure", pressureColor],
-      ]) {
-        if (key === "pressure" && !style.showPressure) continue;
-        ctx.fillStyle = color;
+  for (const key of keys) {
+    const box = plots[key];
+    if (!data && !theory?.data) {
+      ctx.fillStyle = background;
+      ctx.fillRect(box.x, box.y, box.width, box.height);
+      text(ctx, "Waiting for CSV data", box.x + box.width / 2,
+        box.y + box.height / 2 + 6, 16, muted, 500, "center");
+    }
+    if (data && style.trace === "full")
+      path(key, reduced, { offset: 0, scale: 1 }, colors[key], 0.3, Infinity);
+    if (theory?.data)
+      path(key, theory.reduced, { offset: theory.offset, scale: theory.timeScale },
+        theoryColor, 0.95, Infinity, true);
+    if (data)
+      path(key, reduced, { offset: 0, scale: 1 }, colors[key], 1, t);
+    if (validMeasurement)
+      drawBurnMarkers(ctx, box, x(measurement.start, box), x(measurement.end, box), light);
+    if (data && t >= domain.start && t <= domain.end) {
+      ctx.strokeStyle = fg;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x(t, box), box.y);
+      ctx.lineTo(x(t, box), box.y + box.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (sample) {
+        ctx.fillStyle = colors[key];
         ctx.beginPath();
-        ctx.arc(x(t), y(sample[key], key), 4, 0, Math.PI * 2);
+        ctx.arc(x(t, box), y(sample[key], key), 3.5, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = light ? "#f6f8fa" : "#101820";
+        ctx.strokeStyle = background;
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
@@ -355,71 +403,29 @@ export function drawOverlay(
   ctx.moveTo(metrics.divider, top + 50);
   ctx.lineTo(metrics.divider, height - 80);
   ctx.stroke();
-  const rowH = metrics.rowHeight;
   let row = 0;
   const metric = (label, value, unit, color = fg) => {
-    const my = metrics.y + row++ * rowH;
+    const my = metrics.y + row++ * metrics.rowHeight;
     const valueY = my + 37;
-    const valueSize = 32;
     text(ctx, label.toUpperCase(), mx, my, 17, muted, 600);
     text(ctx, unit, width - 26, valueY, 18, color, 500, "right");
     const unitWidth = ctx.measureText(unit).width;
-    text(
-      ctx,
-      value,
-      mx,
-      valueY,
-      valueSize,
-      color,
-      600,
-      "left",
-      Math.max(1, metrics.width - unitWidth - 12),
-    );
+    text(ctx, value, mx, valueY, 32, color, 600, "left",
+      Math.max(1, metrics.width - unitWidth - 12));
   };
-  const compactMetric = (label, value, unit, y) => {
-    text(ctx, label.toUpperCase(), mx, y, 15, muted, 600);
-    text(
-      ctx,
-      `${value} ${unit}`,
-      width - 26,
-      y,
-      18,
-      fg,
-      500,
-      "right",
-      metrics.width * 0.63,
-    );
-  };
-
-  metric(
-    "Thrust",
-    formatValue(sample ? displayThrust(sample.thrust, style.thrustUnit) : null),
-    style.thrustUnit,
-    thrustColor,
-  );
+  metric("Thrust", formatValue(sample ? displayThrust(sample.thrust, style.thrustUnit) : null),
+    style.thrustUnit, thrustColor);
   if (style.showPressure)
-    metric(
-      "Pressure",
-      formatValue(
-        sample ? displayPressure(sample.pressure, style.pressureUnit) : null,
-      ),
-      style.pressureUnit,
-      pressureColor,
-    );
-  if (style.showImpulse)
-    compactMetric(
-      "Impulse",
-      formatValue(
-        data && (sample || t < data.start || t > data.end)
-          ? displayThrust(
-              t > data.end ? data.impulse : t < data.start ? 0 : sample.impulse,
-              style.thrustUnit,
-            )
-          : null,
-      ),
-      `${style.thrustUnit}·s`,
-      metrics.compactY,
-    );
+    metric("Pressure", formatValue(sample ? displayPressure(sample.pressure, style.pressureUnit) : null),
+      style.pressureUnit, pressureColor);
+  if (style.showImpulse) {
+    const value = formatValue(data && (sample || t < data.start || t > data.end)
+      ? displayThrust(t > data.end ? data.impulse : t < data.start ? 0 : sample.impulse, style.thrustUnit)
+      : null);
+    text(ctx, "IMPULSE", mx, metrics.compactY, 15, muted, 600);
+    text(ctx, `${value} ${style.thrustUnit}·s`, width - 26, metrics.compactY,
+      18, fg, 500, "right", metrics.width * 0.63);
+  }
   ctx.restore();
 }
 

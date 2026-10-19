@@ -95,6 +95,11 @@ export async function verifySeries({ browser, baseURL, outputDir }) {
     await page.goto(baseURL);
     await page.locator("#language-select").selectOption("en");
     await page.locator("#mode-analysis").click();
+    assert.equal(await page.locator("#profiles-source-thrust").inputValue(), "kgf");
+    assert.equal(await page.locator("#profiles-thrust-unit").inputValue(), "kgf");
+    await reveal(page.locator("#profiles-source-thrust"));
+    await select("profiles-source-thrust", "N");
+    await select("profiles-thrust-unit", "N");
     await select("profiles-mode", "series");
     await page.locator("#series-panel").waitFor({ state: "visible" });
 
@@ -329,6 +334,10 @@ export async function verifySeries({ browser, baseURL, outputDir }) {
         await folder.goto(baseURL);
         await folder.locator("#language-select").selectOption("en");
         await folder.locator("#mode-analysis").click();
+        await folder.locator("#profiles-source-thrust").evaluate((input) => {
+          input.value = "N";
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
         await folder.locator("#profiles-mode").selectOption("series");
         assert.equal(await folder.locator("#series-folder").isVisible(), true);
         assert.equal(await folder.locator("#series-folder-input").getAttribute("webkitdirectory"), "");

@@ -7,6 +7,8 @@ import {
   overlayGeometry,
   overlayHeight,
   chartAxis,
+  drawOverlay,
+  overlayTimeDomain,
 } from "../src/overlay.js";
 import { parseCSV, chartPoints } from "../src/data.js";
 import { presentationScale } from "../src/composition-layout.js";
@@ -14,20 +16,29 @@ import { presentationScale } from "../src/composition-layout.js";
 function recordingContext(width, height) {
   const transforms = [];
   let transform = { x: 0, y: 0, sx: 1, sy: 1 };
+  let path = [];
+  let dash = [];
   const context = {
     canvas: { width, height },
     font: "10px system-ui",
     textAlign: "left",
     texts: [],
+    strokes: [],
     measurements: 0,
     save() {
-      transforms.push({ ...transform, font: this.font, align: this.textAlign });
+      transforms.push({ ...transform, font: this.font, align: this.textAlign,
+        strokeStyle: this.strokeStyle, lineWidth: this.lineWidth,
+        globalAlpha: this.globalAlpha, dash: [...dash] });
     },
     restore() {
       const saved = transforms.pop();
       transform = saved;
       this.font = saved.font;
       this.textAlign = saved.align;
+      this.strokeStyle = saved.strokeStyle;
+      this.lineWidth = saved.lineWidth;
+      this.globalAlpha = saved.globalAlpha;
+      dash = saved.dash;
     },
     translate(x, y) {
       transform.x += x * transform.sx;
@@ -64,14 +75,17 @@ function recordingContext(width, height) {
         naturalWidth,
       });
     },
-    beginPath() {},
+    beginPath() { path = []; },
     rect() {},
     clip() {},
     fillRect() {},
-    stroke() {},
-    moveTo() {},
-    lineTo() {},
-    setLineDash() {},
+    stroke() { this.strokes.push({ points: [...path], color: this.strokeStyle,
+      lineWidth: this.lineWidth, alpha: this.globalAlpha, dash: [...dash] }); },
+    moveTo(x, y) { path.push({ type: "move", x: transform.x + x * transform.sx,
+      y: transform.y + y * transform.sy }); },
+    lineTo(x, y) { path.push({ type: "line", x: transform.x + x * transform.sx,
+      y: transform.y + y * transform.sy }); },
+    setLineDash(value) { dash = [...value]; },
     arc() {},
     fill() {},
   };
@@ -131,6 +145,7 @@ function render(
     scale = 1,
     sourceInfo = null,
     measurement = null,
+    theory = null,
   } = {},
 ) {
   drawComposition(
@@ -145,10 +160,11 @@ function render(
     time,
     offset,
     scale,
-    { ...defaultStyle, ...style },
+    { ...defaultStyle, thrustUnit: "N", ...style },
     { ...defaultMetadata, ...metadata },
     sourceInfo,
     measurement,
+    theory,
   );
   return ctx.texts;
 }
@@ -172,10 +188,21 @@ test("minimum panel settings reserve positive chart and metric regions at every 
     assert.ok(chart.height > 0 && chart.width > 0, `${width} × ${height}`);
     assert.ok(chart.y > geometry.top);
     assert.ok(chart.y + chart.height < geometry.height);
-    assert.ok(chart.x + chart.width + 52 < metrics.divider);
+    assert.ok(chart.x + chart.width + 24 < metrics.divider);
+    const { thrust, pressure } = geometry.plots;
+    assert.ok(thrust.height >= 45 && pressure.height >= 45);
+    assert.ok(thrust.y + thrust.height < pressure.y - 20 ||
+      thrust.x + thrust.width < pressure.x - 70);
+    assert.equal(thrust.width, pressure.width);
+    if (geometry.orientation === "vertical") assert.equal(thrust.x, pressure.x);
+    else {
+      assert.equal(thrust.y, pressure.y);
+      assert.ok(thrust.height >= 118);
+    }
+    assert.equal(pressure.y + pressure.height, chart.y + chart.height);
     assert.ok(metrics.x + metrics.width < geometry.width);
     assert.ok(metrics.rowHeight >= 30);
-    assert.ok(chart.y + chart.height + 22 < geometry.footer.y);
+    assert.ok(chart.y + chart.height + 24 < geometry.footer.y);
     assert.deepEqual(geometry.footer, {
       x: 0,
       y: geometry.height - 64,
@@ -204,7 +231,14 @@ test("default Full HD reserves 1440 by 810 footage and keeps all optional elemen
         for (const showDetails of [false, true]) {
           const style = { ...defaultStyle, showPressure, showImpulse, showDetails };
           assert.deepEqual(compositionGeometry(width, height, 1920, 1080, style), fixed);
-          assert.deepEqual(overlayGeometry(width, height, style), plot);
+          const optional = overlayGeometry(width, height, style);
+          assert.deepEqual(optional.chart, plot.chart);
+          assert.deepEqual(optional.footer, plot.footer);
+          assert.deepEqual(optional.metrics, plot.metrics);
+          if (!showPressure) {
+            assert.deepEqual(optional.plots.thrust, optional.chart);
+            assert.equal(optional.plots.pressure, null);
+          }
         }
       }
     }
@@ -237,9 +271,11 @@ test("model, date, results, and complete test records sit beside footage while s
   for (const label of recordLabels) assert.ok(texts.includes(label), label);
   for (const item of rendered.filter((item) => /^(VIDEO$|LOG$|Frame |CSV row |CSV 0\.|0\.100000 s)/.test(item.value) || [source.videoName, source.logName].includes(item.value)))
     assertInside(item, geometry.sources);
-  assert.equal(texts.filter((value) => value.startsWith("Δt ")).length, 1);
+  assert.equal(texts.filter((value) => value === "Burn duration 0.100 s · CSV").length, 1);
+  assert.equal(texts.filter((value) => value === "A").length, 2);
+  assert.equal(texts.filter((value) => value === "B").length, 2);
   assert.ok(!texts.some((value) => /SO FAR|BURN INTERVAL|VIDEO & LOG|CSV TIME/.test(value)));
-  assertUncompressed(rendered.filter((item) => !item.value.startsWith("Δt ")));
+  assertUncompressed(rendered);
 });
 
 test("the sidebar exposes only observed peaks in live mode and all final results when selected", () => {
@@ -515,5 +551,101 @@ test("filenames retain source identity without shrinking diagnostics or showing 
       assert.ok(footer.some((item) => item.value === value), value);
     for (const item of footer) assertInside(item, geometry.sources);
     assertUncompressed(long);
+  }
+});
+
+test("default video graphics display kilogram-force and bar on separate signal axes", () => {
+  assert.equal(defaultStyle.thrustUnit, "kgf");
+  assert.equal(defaultStyle.pressureUnit, "bar");
+  const data = parseCSV("time_ms;thrust;pressure\n0;9.80665;2\n100;9.80665;2");
+  const ctx = recordingContext(1920, 1080);
+  drawOverlay(ctx, 1920, 1080, data, chartPoints(data), 0.05, 0, 1, defaultStyle);
+  const thrust = ctx.texts.find(({ value }) => value === "Thrust · kgf");
+  const pressure = ctx.texts.find(({ value }) => value === "Pressure · bar");
+  assert.ok(thrust && pressure);
+  assert.ok(thrust.bottom < pressure.top || thrust.right < pressure.left);
+  const instant = ctx.texts.findIndex(({ value }) => value === "THRUST");
+  assert.equal(ctx.texts[instant + 1].value, "kgf");
+  assert.equal(ctx.texts[instant + 2].value, "1.0");
+  assert.ok(ctx.texts.some(({ value }) => value === "CSV time"));
+});
+
+test("theory uses its own clock, extends both plot axes, and preserves telemetry gaps", () => {
+  const data = log();
+  const calculated = parseCSV("time_ms;thrust;pressure\n10000;-50;-3\n10100;2000;100\n11000;1200;70\n11100;0;0");
+  const theory = { data: calculated, reduced: chartPoints(calculated), offset: -10,
+    timeScale: 1, name: "theoretical.csv" };
+  const domain = overlayTimeDomain(data, theory);
+  assert.equal(domain.start, 0);
+  assert.ok(Math.abs(domain.end - 1.1) < 1e-12);
+  const ctx = recordingContext(1920, 1080);
+  render(ctx, { data, theory });
+  assert.ok(ctx.texts.some(({ value }) => value === "Measured"));
+  assert.ok(ctx.texts.some(({ value }) => value === "Theory"));
+  const curves = ctx.strokes.filter(({ points, dash }) =>
+    dash.join(",") === "6,3" && points.length > 2);
+  assert.equal(curves.length, 2);
+  const geometry = overlayGeometry(1920, 1080, defaultStyle);
+  for (let i = 0; i < curves.length; i++) {
+    const box = geometry.plots[i ? "pressure" : "thrust"];
+    const { points } = curves[i];
+    assert.deepEqual(points.map(({ type }) => type), ["move", "line", "move", "line"]);
+    assert.ok(Math.abs(points[0].x - box.x) < 1e-10);
+    assert.ok(Math.abs(points.at(-1).x - box.x - box.width) < 1e-10);
+    for (const point of points) {
+      assert.ok(point.y >= box.y && point.y <= box.y + box.height);
+      assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y));
+    }
+  }
+  assert.ok(ctx.texts.some(({ value }) => value === "4000"), "theory peak contributes to thrust scale");
+  assert.ok(ctx.texts.some(({ value }) => value === "200"), "theory peak contributes to pressure scale");
+});
+
+test("A/B mark both plots and burn duration retains original CSV seconds after slow-motion alignment", () => {
+  for (const showPressure of [false, true]) {
+    const ctx = recordingContext(1920, 1080);
+    render(ctx, { time: 0.2, scale: 2, measurement: { start: 0.05, end: 0.15 },
+      style: { showPressure } });
+    const count = showPressure ? 2 : 1;
+    assert.equal(ctx.texts.filter(({ value }) => value === "A").length, count);
+    assert.equal(ctx.texts.filter(({ value }) => value === "B").length, count);
+    assert.equal(ctx.texts.filter(({ value }) => value === "Burn duration 0.100 s · CSV").length, 1);
+    assert.ok(ctx.texts.some(({ value }) => value.includes("TIME STRETCH 200%")));
+    assertUncompressed(ctx.texts);
+  }
+});
+
+test("preview composition and direct export overlay draw identical measured and theoretical curves", () => {
+  const data = log();
+  const calculated = parseCSV("time_ms;thrust;pressure\n1000;0;0\n1100;90;25\n1200;40;10\n1300;0;0");
+  const theory = { data: calculated, reduced: chartPoints(calculated), offset: -1,
+    timeScale: 1, name: "calculated.csv" };
+  const composed = recordingContext(1920, 1080);
+  render(composed, { data, theory, measurement: { start: 0.05, end: 0.15 } });
+  const overlay = recordingContext(1920, 1080);
+  drawOverlay(overlay, 1920, 1080, data, chartPoints(data), 0.1, 0, 1,
+    { ...defaultStyle, thrustUnit: "N", opacity: 100 },
+    { start: 0.05, end: 0.15 }, theory);
+  const curves = ({ strokes }) => strokes.filter(({ points, lineWidth }) =>
+    points.length > 2 && [2, 2.4].includes(lineWidth));
+  assert.deepEqual(curves(composed), curves(overlay));
+  assert.equal(curves(composed).length, 6);
+});
+
+test("nonzero source clocks fit both plot edges without covering the CSV time caption", () => {
+  const data = parseCSV("time_ms;thrust;pressure\n10000000;0;0\n10000100;100;2\n10000200;0;0");
+  const ctx = recordingContext(1920, 1080);
+  render(ctx, { data, time: 10000.1 });
+  const geometry = overlayGeometry(1920, 1080, defaultStyle);
+  const captions = ctx.texts.filter(({ value }) => value === "CSV time");
+  const starts = ctx.texts.filter(({ value }) => value === "10000 s");
+  const ends = ctx.texts.filter(({ value }) => value === "10000.2 s");
+  assert.equal(starts.length, 2);
+  assert.equal(ends.length, 2);
+  for (let index = 0; index < 2; index++) {
+    const box = geometry.plots[index ? "pressure" : "thrust"];
+    assert.ok(captions[index].right < starts[index].left);
+    assert.ok(starts[index].left >= box.x);
+    assert.ok(ends[index].right <= box.x + box.width);
   }
 });

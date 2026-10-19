@@ -92,6 +92,8 @@ export async function verifyProfiles({ browser, baseURL, fixture, outputDir }) {
     await settle();
   };
   const importFiles = async (files) => {
+    await reveal(page.locator("#profiles-source-thrust"));
+    await select("profiles-source-thrust", "N");
     await page.locator("#profiles-input").setInputFiles(files);
     await settle();
   };
@@ -118,6 +120,8 @@ export async function verifyProfiles({ browser, baseURL, fixture, outputDir }) {
     await page.goto(baseURL);
     await page.locator("#language-select").selectOption("en");
     if (fixture) {
+      await page.locator("#csv-settings").evaluate((element) => { element.open = true; });
+      await page.locator("#source-thrust-unit").selectOption("N");
       await page.locator("#import-input").setInputFiles([
         { name: "preserved-video.webm", mimeType: "video/webm", buffer: fixture },
         inputFile("preserved-video-log.csv", csvFixture()),
@@ -143,6 +147,11 @@ export async function verifyProfiles({ browser, baseURL, fixture, outputDir }) {
     await caseOf("analysis mode isolates video edits and keyboard shortcuts", async () => {
       await page.locator("#mode-analysis").click();
       await panel.waitFor({ state: "visible" });
+      assert.equal(await page.locator("#profiles-source-thrust").inputValue(), "kgf");
+      assert.equal(await page.locator("#profiles-source-pressure").inputValue(), "bar");
+      assert.equal(await page.locator("#profiles-thrust-unit").inputValue(), "kgf");
+      assert.equal(await page.locator("#profiles-pressure-unit").inputValue(), "bar");
+      await select("profiles-thrust-unit", "N");
       assert.equal(await page.locator("#video-editor").isVisible(), false);
       await page.evaluate(() => document.activeElement?.blur());
       for (const key of ["Space", "ArrowRight", "ArrowLeft", "Home", "End", "i", "o", "s", process.platform === "darwin" ? "Meta+z" : "Control+z"])
@@ -385,6 +394,10 @@ export async function verifyProfiles({ browser, baseURL, fixture, outputDir }) {
         await limited.goto(baseURL);
         await limited.locator("#language-select").selectOption("en");
         await limited.locator("#mode-analysis").click();
+        await limited.locator("#profiles-source-thrust").evaluate((input) => {
+          input.value = "N";
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
         await limited.locator("#profiles-input").evaluate((input, csv) => {
           // Submit both public file-input changes in one task, before any
           // worker reply can release the first batch's reserved capacity.

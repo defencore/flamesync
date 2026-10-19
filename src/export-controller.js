@@ -24,12 +24,14 @@ export function createExportController(editor) {
     $("cancel-export").click();
   });
   function startExport() {
+    const theory = editor.theory?.forMeasurement(state.measurement) ?? null;
     if (
       !state.file ||
       !state.data ||
       state.exporting ||
       state.loading ||
-      state.csvLoading
+      state.csvLoading || state.theory?.loading ||
+      (state.theory?.enabled && state.theory?.file && (!state.theory.valid || !theory))
     )
       return;
     if (
@@ -128,6 +130,7 @@ export function createExportController(editor) {
         logName: state.csvFile?.name ?? "",
       },
       measurement: editor.measurements.visible(),
+      theory,
       offset: state.offset,
       timeScale: state.timeScale,
       start: state.start,

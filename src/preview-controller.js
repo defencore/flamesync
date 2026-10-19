@@ -32,6 +32,7 @@ export function createPreviewController(editor) {
         logName: state.csvFile?.name ?? "",
       },
       editor.measurements.visible(),
+      editor.theory?.forMeasurement(state.measurement),
     );
   }
 

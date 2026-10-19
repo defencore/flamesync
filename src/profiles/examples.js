@@ -1,3 +1,5 @@
+import { DEFAULT_CSV_SETTINGS, displayThrust } from "../units.js";
+
 // Synthetic examples are generated in memory only when explicitly requested.
 export function profileExamples() {
   return [0, 1].map((variant) => {
@@ -8,7 +10,7 @@ export function profileExamples() {
       const time = index / rate, phase = (time - 0.8) / (variant ? 2.8 : 2.5);
       const envelope = phase > 0 && phase < 1 ? Math.min(1, phase * 12, (1 - phase) * 12) : 0;
       const force = envelope * ((variant ? 105 : 100) + (variant ? 2 : 0.7) * Math.sin(time * 98));
-      rows.push(`${Math.round((time + offset) * factor)};${force.toFixed(5)};${(force / 50).toFixed(5)}`);
+      rows.push(`${Math.round((time + offset) * factor)};${displayThrust(force, DEFAULT_CSV_SETTINGS.thrustUnit).toFixed(8)};${(force / 50).toFixed(5)}`);
     }
     return new File([rows.join("\n")], `Example-${variant ? "B-120Hz" : "A-50Hz"}.csv`, { type: "text/csv" });
   });
@@ -22,7 +24,7 @@ export function seriesExamples() {
       const time = sample / rate, phase = (time - .8) / duration;
       const envelope = phase > 0 && phase < 1 ? Math.min(1, phase * 12, (1 - phase) * 12) : 0;
       const force = envelope * ((index === 4 ? 120 : 99 + index) + Math.sin(time * (35 + index * 4)));
-      rows.push(`${Math.round((time + index * 10) * factor)};${force.toFixed(5)};${(force / 50).toFixed(5)}`);
+      rows.push(`${Math.round((time + index * 10) * factor)};${displayThrust(force, DEFAULT_CSV_SETTINGS.thrustUnit).toFixed(8)};${(force / 50).toFixed(5)}`);
     }
     return new File([rows.join("\n")], `Series-example-${String(index + 1).padStart(2, "0")}.csv`, { type: "text/csv" });
   });

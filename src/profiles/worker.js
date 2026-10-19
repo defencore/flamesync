@@ -2,10 +2,13 @@ import { parseCSV, sampleAt } from "../data.js";
 import { errorMessage } from "../messages.js";
 import { analyseProfile, profileMapping, compareProfiles } from "./model.js";
 import { analyseSeries } from "./series-model.js";
+import { alignTheory, comparisonToTheory } from "../theory.js";
 
 // Full logs stay in the worker. Only bounded display curves cross the boundary.
 const sources = new Map();
 let queue = Promise.resolve();
+let theory = null;
+let theoryWindow = null, theoryAnalysis = null;
 const metadata = (source) => ({
   id: source.id, name: source.file.name, size: source.file.size,
   start: source.data.start, end: source.data.end,
@@ -13,6 +16,7 @@ const metadata = (source) => ({
   rate: (source.data.points.length - 1) / source.data.duration,
 });
 async function handle(request) {
+  if (request.type === "setTheory") { theory = request.theory; theoryAnalysis = null; theoryWindow = null; return {}; }
   if (request.type === "import") {
     const records = [], errors = [];
     for (const entry of request.entries) {
@@ -33,6 +37,10 @@ async function handle(request) {
     return {};
   }
   if (request.type === "analyze") {
+    if (request.theory && theory && (theoryWindow !== request.noiseWindow || !theoryAnalysis)) {
+      theoryAnalysis = analyseProfile(theory.data, { start: theory.stats.start, end: theory.stats.end, noiseWindow: request.noiseWindow });
+      theoryWindow = request.noiseWindow;
+    }
     const records = request.profiles.map((profile) => {
       const source = sources.get(profile.id);
       if (!source) return { id: profile.id, error: errorMessage(new Error("Missing profile")) };
@@ -47,6 +55,11 @@ async function handle(request) {
       } catch (error) { return { id: profile.id, error: errorMessage(error) }; }
     });
     const reference = records.find((record) => record.id === request.reference);
+    if (request.theory && theory) for (const record of records) {
+      if (!record.stats || request.profiles.find((profile) => profile.id === record.id)?.valid === false) continue;
+      const mapping = alignTheory(record.stats, theory.stats, request.alignment === "normalized" ? "both" : request.alignment === "source" ? "source" : request.alignment);
+      record.theoryDifference = comparisonToTheory(sources.get(record.id).data, record.stats, theory.data, theory.stats, mapping);
+    }
     for (const record of request.series ? [] : records) {
       if (!record.stats || !record.mapping || !reference?.stats || !reference.mapping) continue;
       const mapped = (item, event) => Number.isFinite(item.stats[event])
@@ -80,7 +93,7 @@ async function handle(request) {
         pressureMin: point.pressureMin - point.pressure, pressureMax: point.pressureMax - point.pressure,
         thrust: 0, pressure: 0 })) ?? [];
     }
-    return { records, series };
+    return { records, series, theoryCurves: request.theory ? theoryAnalysis?.curves ?? null : null };
   }
   if (request.type === "sample") {
     return { samples: request.profiles.map(({ id, mapping }) => {

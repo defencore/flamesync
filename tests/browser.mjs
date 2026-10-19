@@ -3,7 +3,8 @@ import { verifyFrameStepping } from "./frame-stepping-browser.mjs";
 import { verifyEditorWorkflow } from "./editor-workflow.mjs";
 import { verifyProfiles } from "./profile-browser.mjs";
 import { verifySeries } from "./series-browser.mjs";
-import { mkdir, readFile, mkdtemp, rm } from "node:fs/promises";
+import { verifyTheory } from "./theory-browser.mjs";
+import { mkdir, readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -52,6 +53,19 @@ async function settle(target = page) {
 async function openEditor(target = page) {
   await target.goto(baseURL);
   await select("language-select", "en", target);
+  assert.equal(await target.locator("#source-thrust-unit").inputValue(), "kgf");
+  assert.equal(await target.locator("#source-pressure-unit").inputValue(), "bar");
+  assert.equal(await target.locator("#thrust-unit").inputValue(), "kgf");
+  assert.equal(await target.locator("#pressure-unit").inputValue(), "bar");
+  assert.equal(await target.locator("#show-measurement").isChecked(), true);
+  // These regression fixtures contain Newtons. Select their units explicitly;
+  // the user-facing import and output defaults remain kilogram-force and bar.
+  await target.locator("#csv-settings").evaluate((element) => { element.open = true; });
+  await select("source-thrust-unit", "N", target);
+  await target.locator("#csv-settings").evaluate((element) => { element.open = false; });
+  await target.getByRole("tab", { name: "Appearance", exact: true }).click();
+  await select("thrust-unit", "N", target);
+  await target.getByRole("tab", { name: "Project", exact: true }).click();
 }
 async function change(id, value, target = page) {
   await target.locator(`#${id}`).fill(String(value));
@@ -887,6 +901,8 @@ async function verifyMeasurements(fixture) {
     0.35,
   );
   assert.equal(await editor.locator("#sync-offset").inputValue(), offset);
+  assert.equal(await editor.locator("#show-measurement").isChecked(), true);
+  await editor.locator("#show-measurement").uncheck();
   const before = await editor
     .locator("#preview")
     .evaluate((canvas) => canvas.toDataURL());
@@ -1350,6 +1366,9 @@ try {
   const series = await verifySeries({ browser, baseURL, outputDir });
   failures.push(...series.failures);
   requests.push(...series.requests);
+  const theory = await verifyTheory({ browser, baseURL, outputDir });
+  failures.push(...theory.failures);
+  requests.push(...theory.requests);
   await verifyDefaultFullHD(fixture);
   await verifyLocalization(fixture);
   await verifyIgnitionAlignment(fixture);
@@ -1413,14 +1432,47 @@ try {
   await change("trim-start", 1);
   await seek(3);
   const previousOffset = await page.locator("#sync-offset").inputValue();
+  await page.evaluate(() => {
+    const video = document.querySelector("#source-video");
+    window.__qaJumpEvents = [];
+    const record = (event) => {
+      window.__qaJumpEvents.push({ event: event.type, time: video.currentTime,
+        paused: video.paused, seeking: video.seeking, ended: video.ended });
+      if (window.__qaJumpEvents.length > 80) window.__qaJumpEvents.shift();
+    };
+    const events = ["play", "playing", "pause", "seeking", "seeked", "ended", "timeupdate"];
+    for (const event of events)
+      video.addEventListener(event, record);
+    window.__qaStopJumpRecording = () => {
+      for (const event of events) video.removeEventListener(event, record);
+      delete window.__qaStopJumpRecording;
+    };
+  });
   await click("play-button");
   await click("jump-start");
-  await page.waitForFunction(() => {
-    const video = document.querySelector("#source-video");
-    return (
-      !video.seeking && video.paused && Math.abs(video.currentTime - 1) < 0.001
-    );
-  });
+  try {
+    await page.waitForFunction(() => {
+      const video = document.querySelector("#source-video");
+      return !video.seeking && video.paused && Math.abs(video.currentTime - 1) < 0.001;
+    });
+  } catch (error) {
+    const state = await page.evaluate(() => {
+      const video = document.querySelector("#source-video");
+      return { currentTime: video.currentTime, paused: video.paused,
+        seeking: video.seeking, ended: video.ended, playbackRate: video.playbackRate,
+        fields: Object.fromEntries(["trim-start", "trim-end", "sync-offset", "playback-rate"]
+          .map((id) => [id, document.getElementById(id).value])),
+        labels: Object.fromEntries(["scrubber-time", "current-time", "video-frame-number", "notice"]
+          .map((id) => [id, document.getElementById(id).textContent])),
+        events: window.__qaJumpEvents };
+    });
+    console.error("Selected-start transport failure:", JSON.stringify(state));
+    await writeFile(join(outputDir, "jump-start-failure.json"), JSON.stringify(state, null, 2));
+    await page.screenshot({ path: join(outputDir, "jump-start-failure.png"), fullPage: true });
+    throw error;
+  } finally {
+    await page.evaluate(() => window.__qaStopJumpRecording?.());
+  }
   assert.equal(await page.locator("#sync-offset").inputValue(), previousOffset);
   assert.equal(await page.locator("#trim-end").inputValue(), "4.000");
   await seek(2);

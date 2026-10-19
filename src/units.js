@@ -19,6 +19,16 @@ export const PRESSURE_FACTORS = Object.freeze({
 });
 export const TIME_FACTORS = Object.freeze({ s: 1, ms: 0.001, us: 0.000001 });
 /** @typedef {{timeUnit?:string,thrustUnit?:string,pressureUnit?:string}} CSVSettings */
+// Kilogram-force is the force unit used by the application's test-stand CSVs.
+export const DEFAULT_CSV_SETTINGS = Object.freeze({
+  timeUnit: "auto",
+  thrustUnit: "kgf",
+  pressureUnit: "bar",
+});
+export const DEFAULT_DISPLAY_UNITS = Object.freeze({
+  thrustUnit: "kgf",
+  pressureUnit: "bar",
+});
 /** @param {Record<string,number>} factors @param {string} unit */
 function factor(factors, unit) {
   if (!Object.hasOwn(factors, unit))

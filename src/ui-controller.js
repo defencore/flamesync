@@ -21,10 +21,16 @@ export function createUIController(editor) {
     $("export-dimensions").textContent = state.file
       ? `${size.width} × ${size.height}`
       : "—";
+    const theoryRequested = state.theory?.enabled && state.theory?.file;
+    const theoryInvalid = theoryRequested && !state.theory.valid;
+    const theoryUnmapped = theoryRequested && state.data &&
+      !state.theory.loading && !theoryInvalid &&
+      !editor.theory?.forMeasurement(state.measurement);
     const unavailable =
       !(state.file && state.data) ||
       state.loading ||
-      state.csvLoading ||
+      state.csvLoading || state.theory?.loading ||
+      theoryInvalid || theoryUnmapped ||
       state.exporting;
     const overlaps =
       state.data &&
@@ -34,8 +40,10 @@ export function createUIController(editor) {
     for (const button of document.querySelectorAll("[data-save-video]"))
       button.disabled = unavailable || !overlaps;
     const status =
-      state.loading || state.csvLoading
+      state.loading || state.csvLoading || state.theory?.loading
         ? "Reading your files…"
+        : theoryInvalid
+          ? "Correct the theoretical profile settings or disable theory before saving."
         : state.exporting
           ? "Creating your video. Keep this tab open."
           : !state.file && !state.data
@@ -44,6 +52,8 @@ export function createUIController(editor) {
               ? "Add a video to enable saving."
               : !state.data
                 ? "Add a CSV log to enable saving."
+                : theoryUnmapped
+                  ? "Set matching A/B markers, choose Original CSV time for theory, or disable theory before saving."
                 : !overlaps
                   ? "Move the CSV track into the selected video range to save."
                   : message(

@@ -154,6 +154,12 @@ export async function verifyEditorWorkflow({
   const open = async (video = fixture, filename = "workflow-local.webm") => {
     await page.goto(baseURL);
     await page.locator("#language-select").selectOption("en");
+    await page.locator("#csv-settings").evaluate((element) => { element.open = true; });
+    await page.locator("#source-thrust-unit").selectOption("N");
+    await page.locator("#csv-settings").evaluate((element) => { element.open = false; });
+    await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+    await page.locator("#thrust-unit").selectOption("N");
+    await page.getByRole("tab", { name: "Project", exact: true }).click();
     await page.locator("#import-input").setInputFiles([
       {
         name: filename,

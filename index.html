@@ -165,6 +165,26 @@
         <button id="mode-video" class="active" role="tab" aria-selected="true" aria-controls="video-editor" data-panel="video"><span data-i18n="Video editor">Video editor</span></button>
         <button id="mode-analysis" role="tab" aria-selected="false" aria-controls="profile-analysis" data-panel="profiles" tabindex="-1"><span data-i18n="Burn profile analysis">Burn profile analysis</span></button>
       </nav>
+      <details id="theory-panel" class="panel theory-panel" aria-busy="false">
+        <summary><span data-i18n="Theoretical profile · optional CSV">Theoretical profile · optional CSV</span><span id="theory-name" class="small muted"></span></summary>
+        <div class="theory-body">
+          <div class="theory-file-row"><button id="theory-add" class="button secondary" data-i18n="Add theoretical CSV">Add theoretical CSV</button><input id="theory-input" type="file" accept=".csv,.tsv,.txt,text/csv" hidden><label class="theory-toggle"><input id="theory-enabled" type="checkbox" checked><span data-i18n="Show theory">Show theory</span></label><button id="theory-remove" class="text-button" disabled data-i18n="Remove">Remove</button><button class="info-button" aria-label="About theoretical profiles" data-i18n-aria-label="About theoretical profiles" data-help="Load a calculation or simulation CSV with the same time, thrust, and pressure columns as a measured log. Source thrust defaults to kilogram-force (kgf, often written kg); pressure defaults to bar. Theory is shared by all workspaces and never counts as a measured test. Analysis uses its selected profile alignment; the timing controls below apply to video only. Original impulse and duration are never changed by display alignment." data-i18n-data-help="Load a calculation or simulation CSV with the same time, thrust, and pressure columns as a measured log. Source thrust defaults to kilogram-force (kgf, often written kg); pressure defaults to bar. Theory is shared by all workspaces and never counts as a measured test. Analysis uses its selected profile alignment; the timing controls below apply to video only. Original impulse and duration are never changed by display alignment.">i</button></div>
+          <div class="theory-input-grid">
+            <label><span data-i18n="CSV time unit">CSV time unit</span><select id="theory-time-unit"><option value="auto" data-i18n="From header · ms / µs / s">From header · ms / µs / s</option><option value="ms">ms</option><option value="us">µs</option><option value="s">s</option></select></label>
+            <label><span data-i18n="CSV thrust">CSV thrust</span><select id="theory-thrust-unit"><option>N</option><option>kN</option><option selected>kgf</option><option>gf</option><option>lbf</option></select></label>
+            <label><span data-i18n="CSV pressure">CSV pressure</span><select id="theory-pressure-unit"><option>bar</option><option>Pa</option><option>MPa</option><option>kPa</option><option>psi</option><option>atm</option></select></label>
+            <label><span data-i18n="Theory ignition (s)">Theory ignition (s)</span><input id="theory-start" type="number" step="0.000001" disabled></label>
+            <label><span data-i18n="Theory burnout (s)">Theory burnout (s)</span><input id="theory-end" type="number" step="0.000001" disabled></label>
+            <button id="theory-detect" class="text-button" disabled data-i18n="Detect burn">Detect burn</button>
+          </div>
+          <details class="theory-timing"><summary data-i18n="Theoretical timing in video">Theoretical timing in video</summary><div class="theory-input-grid">
+            <label><span data-i18n="Align theory in video">Align theory in video</span><select id="theory-alignment"><option value="ignition" data-i18n="Match ignition">Match ignition</option><option value="burnout" data-i18n="Match burnout">Match burnout</option><option value="both" data-i18n="Match both events · retime theory">Match both events · retime theory</option><option value="source" data-i18n="Original CSV time">Original CSV time</option></select></label>
+            <label><span data-i18n="Extra offset (s)">Extra offset (s)</span><input id="theory-offset" type="number" step="0.000001" value="0"></label>
+            <label><span data-i18n="Theory duration (%)">Theory duration (%)</span><input id="theory-scale" type="number" step="0.001" min="0.001" value="100"></label>
+          </div></details>
+          <p id="theory-status" class="small muted" role="status" aria-live="polite"></p>
+        </div>
+      </details>
       <section id="video-editor" role="tabpanel" aria-labelledby="mode-video">
 
       <div class="page-heading">
@@ -436,7 +456,7 @@
                     ><select id="source-thrust-unit">
                       <option>N</option>
                       <option>kN</option>
-                      <option>kgf</option>
+                      <option selected>kgf</option>
                       <option>gf</option>
                       <option>lbf</option>
                     </select></label
@@ -540,7 +560,7 @@
                 ><select id="thrust-unit">
                   <option>N</option>
                   <option>kN</option>
-                  <option>kgf</option>
+                  <option selected>kgf</option>
                   <option>gf</option>
                   <option>lbf</option>
                 </select></label
@@ -2028,7 +2048,7 @@
                   >
                 </p>
                 <label class="measurement-export"
-                  ><input id="show-measurement" type="checkbox" disabled /><span
+                  ><input id="show-measurement" type="checkbox" checked disabled /><span
                     data-i18n="Show measured interval in the video"
                     >Show measured interval in the video</span
                   ></label
@@ -2176,7 +2196,7 @@
                     <option>
                       kN
                     </option>
-                    <option>
+                    <option selected>
                       kgf
                     </option>
                     <option>
@@ -2257,8 +2277,8 @@
                 </select>
               </label>
               <label>
-                <span data-i18n="Signal">
-                  Signal
+                <span data-i18n="Difference signal">
+                  Difference signal
                 </span>
                 <select id="profiles-metric">
                   <option value="thrust" data-i18n="Thrust">
@@ -2296,7 +2316,7 @@
                   <option>
                     kN
                   </option>
-                  <option>
+                  <option selected>
                     kgf
                   </option>
                   <option>
@@ -2376,7 +2396,7 @@
               </div>
               <div id="profiles-legend" class="profile-legend">
               </div>
-              <div class="profile-canvas-wrap">
+                <div class="profile-canvas-wrap">
                 <canvas id="profiles-chart" tabindex="0" aria-label="Compared burn profiles" data-i18n-aria-label="Compared burn profiles">
                 </canvas>
                 <div id="profiles-empty" class="profile-chart-empty">
@@ -2388,6 +2408,7 @@
                   </span>
                 </div>
               </div>
+                <div class="profile-pressure-wrap"><canvas id="profiles-pressure-chart" tabindex="0" aria-label="Compared pressure profiles" data-i18n-aria-label="Compared pressure profiles"></canvas></div>
               <div id="profiles-hover" class="profile-hover" aria-live="off">
               </div>
             </div>
@@ -2409,6 +2430,7 @@
             </div>
           </div>
         </div>
+        <section id="profiles-theory-panel" class="panel profile-results" hidden aria-labelledby="profiles-theory-title"><div class="profile-section-title"><h2 id="profiles-theory-title" data-i18n="Measured versus theory">Measured versus theory</h2><span id="profiles-theory-name" class="small muted"></span><button id="profiles-theory-export" class="button secondary" data-i18n="Export theory comparison CSV">Export theory comparison CSV</button><button class="info-button" aria-label="About measured versus theory" data-i18n-aria-label="About measured versus theory" data-help="Each measured test is compared with the theoretical profile on the common selected burn interval. RMSE is measured minus theory, weighted by time. Percentage differences in impulse and duration use original source values, including in normalized shape view. Theory never enters batch statistics." data-i18n-data-help="Each measured test is compared with the theoretical profile on the common selected burn interval. RMSE is measured minus theory, weighted by time. Percentage differences in impulse and duration use original source values, including in normalized shape view. Theory never enters batch statistics.">i</button></div><div class="profile-table-scroll" tabindex="0" role="region" aria-label="Measured versus theory" data-i18n-aria-label="Measured versus theory"><table id="profiles-theory-results"><thead></thead><tbody></tbody></table></div></section>
         <section id="series-panel" class="series-panel" hidden aria-labelledby="series-title">
           <div class="panel profile-results">
             <div class="profile-section-title"><h2 id="series-title" data-i18n="Series repeatability">Series repeatability</h2><span id="series-count" class="small muted" role="status"></span><button id="series-export" class="button secondary" disabled data-i18n="Export series report CSV">Export series report CSV</button></div>
@@ -2550,7 +2572,7 @@
                     <option>
                       kN
                     </option>
-                    <option>
+                    <option selected>
                       kgf
                     </option>
                     <option>

@@ -2,6 +2,7 @@
 @import url("./timeline.css");
 @import url("./profiles/styles.css");
 @import url("./profiles/series.css");
+@import url("./theory.css");
 
 * {
   box-sizing: border-box;

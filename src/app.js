@@ -1,5 +1,6 @@
 import { $, bindTabs } from "./dom.js";
 import { createProfileWorkspace } from "./profiles/controller.js";
+import { createTheoryController } from "./theory-controller.js";
 import { createEditController } from "./edit-controller.js";
 import { bindEditorShortcuts } from "./shortcuts.js";
 import { createEditorState } from "./state.js";
@@ -70,6 +71,15 @@ try {
   bindAppearanceControls(editor);
   bindTooltips();
   profiles = createProfileWorkspace();
+  editor.theory = createTheoryController({
+    notice: editor.notice,
+    onChange(snapshot) {
+      state.theory = snapshot;
+      profiles.setTheory(snapshot);
+      editor.refresh();
+    },
+  });
+  state.theory = editor.theory.snapshot();
   bindTabs($("studio-modes"), (tab) => {
     const analysis = tab.dataset.panel === "profiles";
     if (analysis) editor.video.pause();
@@ -99,6 +109,7 @@ window.addEventListener("pagehide", () => {
   editor.sources?.dispose();
   editor.measurements?.dispose();
   profiles?.dispose();
+  editor.theory?.dispose();
   if (state.videoURL) URL.revokeObjectURL(state.videoURL);
   if (state.exportURL) URL.revokeObjectURL(state.exportURL);
 });
