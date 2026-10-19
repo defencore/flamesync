@@ -18,7 +18,7 @@ export function stackedTelemetryGeometry(width, height, style) {
   const w = width / scale;
   const h = height / scale;
   const footerHeight = 42;
-  const headerHeight = h > w ? 100 : 68;
+  const headerHeight = w < 1400 ? 74 : 42;
   const body = { x: 0, y: headerHeight, width: w, height: h - headerHeight - footerHeight };
   const panelWidth = w < 1400 ? w * 0.52 : Math.min(660, w * 0.34);
   const panel = {

@@ -33,57 +33,45 @@ function card(ctx, x, y, width, height, opacity) {
   ctx.fillRect(x, y, 2, height);
 }
 
-// The original camera PTS and CSV clock remain separate at every playback rate.
+// Keep both source clocks on one line without repeating category headings.
 function drawTechnicalHeader(ctx, header, source, data, videoTime, csvTime) {
   const frame = source?.timestamps ? frameInfoAt(source.timestamps, videoTime, source.end) : null;
   const fps = source?.fps > 0 ? `${Number(source.fps.toFixed(2))} fps` : "FPS unavailable";
   const log = logPositionAt(data, csvTime);
   const frameLabel = frame
-    ? `Frame ${String(frame.number).padStart(6, "0")} / ${source.timestamps.length.toLocaleString("en-US")}`
+    ? `Frame ${String(frame.number).padStart(6, "0")} / ${source.timestamps.length.toLocaleString("en-US")} · ${frame.timestamp.toFixed(6)} s`
     : "Frame —";
-  const frameClock = frame
-    ? `PTS ${frame.timestamp.toFixed(6)} s · Δ ${(frame.duration * 1000).toFixed(3)} ms`
-    : "Original camera timestamps";
   const logLabel = log?.first
-    ? `CSV row ${log.first.line}${log.second ? ` → ${log.second.line}` : ""}${log.phase === "gap" ? " · GAP" : ""}`
-    : `CSV row —${log?.phase === "before" ? " · awaiting data" : log?.phase === "after" ? " · complete" : ""}`;
-  const logClock = data ? `CSV ${csvTime.toFixed(6)} s` : "No telemetry loaded";
+    ? `Log row ${log.first.line}${log.second ? ` → ${log.second.line}` : ""}${log.phase === "gap" ? " · GAP" : ""}`
+    : `Log row —${log?.phase === "before" ? " · awaiting data" : log?.phase === "after" ? " · complete" : ""}`;
+  const logPosition = data ? `${logLabel} · ${csvTime.toFixed(6)} s` : "No telemetry loaded";
   const format = source?.width && source?.height
     ? `${source.width} × ${source.height} · ${fps}${source.variable ? " · VFR" : ""}`
     : "No video loaded";
   const rate = data?.duration > 0 ? `${((data.points.length - 1) / data.duration).toFixed(1)} Hz avg` : "";
-  const units = data?.sourceUnits;
-  const acquisition = data
-    ? `CSV ${rate}${units ? ` · ${units.time} / ${units.thrust} / ${units.pressure}` : ""}`
-    : "CSV units —";
-  const compact = header.height > 68;
+  const acquisition = `${format}${rate ? ` · ${rate}` : ""}`;
+  const compact = header.height > 42;
   ctx.fillStyle = "#101820";
   ctx.fillRect(header.x, header.y, header.width, header.height);
   ctx.fillStyle = "rgba(202,222,236,.18)";
-  ctx.fillRect(0, header.height - 1, header.width, 1);
+  ctx.fillRect(header.x, header.y + header.height - 1, header.width, 1);
   const columnWidth = header.width / (compact ? 2 : 3);
-  const cells = [
-    ["VIDEO FRAME", frameLabel, frameClock],
-    ["CSV POSITION", logLabel, logClock],
-    ["ACQUISITION", format, acquisition],
-  ];
-  for (let index = 0; index < (compact ? 2 : 3); index++) {
-    const [label, value, detail] = cells[index];
-    const x = 20 + index * columnWidth;
+  const cells = compact ? [frameLabel, logPosition] : [frameLabel, logPosition, acquisition];
+  for (let index = 0; index < cells.length; index++) {
+    const x = header.x + 20 + index * columnWidth;
     const width = columnWidth - 40;
     if (index) {
       ctx.fillStyle = "rgba(202,222,236,.15)";
-      ctx.fillRect(index * columnWidth, 12, 1, 45);
+      ctx.fillRect(header.x + index * columnWidth, header.y + 12, 1, 18);
     }
-    text(ctx, label, x, 16, width, 11, muted, 650);
-    text(ctx, value, x, 38, width, 19, foreground, 650);
-    text(ctx, detail, x, 58, width, 14, muted, 500);
+    const technical = index === 2;
+    text(ctx, cells[index], technical ? x + width : x, header.y + 27, width,
+      technical ? 16 : 18, technical ? muted : foreground, technical ? 500 : 600,
+      technical ? "right" : "left");
   }
   if (compact) {
-    ctx.fillStyle = "rgba(202,222,236,.12)";
-    ctx.fillRect(20, 68, header.width - 40, 1);
-    text(ctx, format, 20, 89, header.width * 0.48 - 20, 14, foreground, 600);
-    text(ctx, acquisition, header.width - 20, 89, header.width * 0.5 - 20, 13, muted, 500, "right");
+    text(ctx, acquisition, header.x + 20, header.y + 58,
+      header.width - 40, 16, muted);
   }
 }
 

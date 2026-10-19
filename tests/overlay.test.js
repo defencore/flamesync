@@ -290,7 +290,7 @@ test("model, date, results, and complete test records sit beside footage while s
   for (const label of recordLabels) assert.ok(texts.includes(label), label);
   for (const item of rendered.filter((item) => /^(VIDEO$|LOG$|Frame |CSV row |CSV 0\.|0\.100000 s)/.test(item.value) || [source.videoName, source.logName].includes(item.value)))
     assertInside(item, geometry.sources);
-  assert.equal(texts.filter((value) => value === "Burn duration 0.100 s · CSV").length, 1);
+  assert.equal(texts.filter((value) => value === "Burn duration 0.100 s").length, 1);
   assert.equal(texts.filter((value) => value === "A").length, 2);
   assert.equal(texts.filter((value) => value === "B").length, 2);
   assert.ok(!texts.some((value) => /SO FAR|BURN INTERVAL|VIDEO & LOG|CSV TIME/.test(value)));
@@ -586,7 +586,7 @@ test("default video graphics display kilogram-force and bar on separate signal a
   const instant = ctx.texts.findIndex(({ value }) => value === "THRUST");
   assert.equal(ctx.texts[instant + 1].value, "kgf");
   assert.equal(ctx.texts[instant + 2].value, "1.0");
-  assert.ok(ctx.texts.some(({ value }) => value === "CSV time"));
+  assert.ok(ctx.texts.some(({ value }) => value === "Time"));
 });
 
 test("theory uses its own clock, extends both plot axes, and preserves telemetry gaps", () => {
@@ -628,7 +628,7 @@ test("A/B mark both plots and burn duration retains original CSV seconds after s
     const count = showPressure ? 2 : 1;
     assert.equal(ctx.texts.filter(({ value }) => value === "A").length, count);
     assert.equal(ctx.texts.filter(({ value }) => value === "B").length, count);
-    assert.equal(ctx.texts.filter(({ value }) => value === "Burn duration 0.100 s · CSV").length, 1);
+    assert.equal(ctx.texts.filter(({ value }) => value === "Burn duration 0.100 s").length, 1);
     assert.ok(ctx.texts.some(({ value }) => value.includes("TIME STRETCH 200%")));
     assertUncompressed(ctx.texts);
   }
@@ -651,12 +651,12 @@ test("preview composition and direct export overlay draw identical measured and 
   assert.equal(curves(composed).length, 6);
 });
 
-test("nonzero source clocks fit both plot edges without covering the CSV time caption", () => {
+test("nonzero source clocks fit both plot edges without covering the shared time caption", () => {
   const data = parseCSV("time_ms;thrust;pressure\n10000000;0;0\n10000100;100;2\n10000200;0;0");
   const ctx = recordingContext(1920, 1080);
   render(ctx, { data, time: 10000.1 });
   const geometry = overlayGeometry(1920, 1080, defaultStyle);
-  const captions = ctx.texts.filter(({ value }) => value === "CSV time");
+  const captions = ctx.texts.filter(({ value }) => value === "Time");
   const starts = ctx.texts.filter(({ value }) => value === "10000 s");
   const ends = ctx.texts.filter(({ value }) => value === "10000.2 s");
   assert.equal(starts.length, 2);
@@ -733,15 +733,24 @@ test("on-video source clocks occupy the top header while metadata and all filena
       assert.ok(text.bottom < geometry.sources.y, value);
       assert.ok(text.top >= geometry.videoFrame.y, value);
     }
-    for (const value of ["Frame 000005 / 5", "CSV row 3", "PTS 0.150000 s · Δ 50.000 ms",
-      "CSV 0.100000 s", "1920 × 1080 · 120 fps", "CSV 10.0 Hz avg · ms / N / bar"]) {
+    for (const value of ["Frame 000005 / 5 · 0.150000 s", "Log row 3 · 0.100000 s",
+      "1920 × 1080 · 120 fps · 10.0 Hz avg"]) {
       const clock = texts.filter((item) => item.value === value);
       assert.equal(clock.length, 1, value);
       assertInside(clock[0], geometry.header);
     }
+    const headerTexts = texts.filter((item) => inBox(item, geometry.header));
+    assert.equal(headerTexts.length, 3);
+    assert.ok(!headerTexts.some(({ value }) => /CSV|VIDEO FRAME|ACQUISITION|PTS|Δ/.test(value)));
+    const scale = presentationScale(width, height);
+    const narrow = width / scale < 1400;
+    assert.equal(geometry.header.height, (narrow ? 74 : 42) * scale);
+    assert.equal(new Set(headerTexts.map(({ bottom, size }) => Math.round((bottom - size * 0.2) * 1e6))).size, narrow ? 2 : 1);
+    for (let index = 1; index < (narrow ? 2 : 3); index++)
+      assert.ok(headerTexts[index].left - headerTexts[index - 1].right >= 12 * scale);
     assert.equal(texts.filter(({ value }) => value === "A").length, 2);
     assert.equal(texts.filter(({ value }) => value === "B").length, 2);
-    assert.ok(texts.some(({ value }) => value === "Burn duration 0.100 s · CSV"));
+    assert.ok(texts.some(({ value }) => value === "Burn duration 0.100 s"));
     assert.ok(texts.some(({ value }) => value.includes("TIME STRETCH 200%")));
     assert.equal(ctx.strokes.filter(({ dash, points, color }) => color === "#f3d05c" && dash.join(",") === "6,3" && points.length > 2).length, 2);
     for (const text of texts) assertInside(text, { x: 0, y: 0, width, height });
@@ -773,9 +782,11 @@ test("on-video panels keep dark translucent backdrops and full-contrast text on 
     assert.ok(!ctx.fills.some(({ color }) => /rgba\(246,248,250/.test(color)));
     assert.ok(ctx.strokes.some(({ color }) => color === "#e9a56c"));
     assert.ok(ctx.strokes.some(({ color, lineWidth }) => color === "#071018" && lineWidth > 2.4));
-    for (const label of ["Thrust · kgf", "Frame 000004 / 5", populated.motor])
+    for (const label of ["Thrust · kgf", "Frame 000004 / 5 · 0.100000 s", populated.motor])
       assert.ok(ctx.outlines.some(({ value, width, shadow }) => value === label && width >= 3 && shadow > 0), label);
     assert.ok(ctx.texts.every(({ alpha }) => alpha === 1));
+    assert.ok(!ctx.texts.some(({ value }) => value === "TELEMETRY"));
+    assert.equal(ctx.texts.filter(({ value }) => value === "Time").length, 1);
     assertUncompressed(ctx.texts);
   }
 });
@@ -785,10 +796,10 @@ test("on-video thrust-only mode uses the complete plot area and retains synchron
   const style = { layout: "stacked", showPressure: false, showDetails: false, showImpulse: true };
   const texts = render(ctx, { style, sourceInfo: source, time: 0.1,
     measurement: { start: 0.05, end: 0.15 } });
-  assert.equal(texts.filter(({ value }) => value === "CSV time").length, 1);
+  assert.equal(texts.filter(({ value }) => value === "Time").length, 1);
   assert.equal(texts.filter(({ value }) => value === "A").length, 1);
-  assert.ok(texts.some(({ value }) => value === "Frame 000004 / 5"));
-  assert.ok(texts.some(({ value }) => value === "CSV row 3"));
+  assert.ok(texts.some(({ value }) => value === "Frame 000004 / 5 · 0.100000 s"));
+  assert.ok(texts.some(({ value }) => value === "Log row 3 · 0.100000 s"));
   assert.ok(!texts.some(({ value }) => /Pressure|PEAK|TOTAL IMPULSE/.test(value)));
   assert.ok(!texts.some(({ value }) => value === populated.motor));
   assert.ok(texts.some(({ value }) => value === "IMPULSE"));
@@ -811,19 +822,19 @@ test("zoomed and repositioned footage is clipped between the technical header an
     assert.ok(geometry.video.x < geometry.videoFrame.x || geometry.video.y < geometry.videoFrame.y ||
       geometry.video.x + geometry.video.width > geometry.videoFrame.x + geometry.videoFrame.width ||
       geometry.video.y + geometry.video.height > geometry.videoFrame.y + geometry.videoFrame.height);
-    for (const text of ctx.texts.filter(({ value }) => value.startsWith("Frame ") || value.startsWith("CSV row ")))
+    for (const text of ctx.texts.filter(({ value }) => value.startsWith("Frame ") || value.startsWith("Log row ")))
       assertInside(text, geometry.header);
   }
 });
 
-test("technical header reports actual variable-frame intervals independently of CSV alignment", () => {
+test("compact header preserves native frame timestamps independently of log alignment", () => {
   const ctx = recordingContext(1920, 1080);
   const texts = render(ctx, { style: { layout: "stacked", showDetails: false },
     sourceInfo: { ...source, variable: true }, time: 0.025, offset: -0.375, scale: 4 });
   const header = compositionGeometry(1920, 1080, 1920, 1080,
     { ...defaultStyle, layout: "stacked" }).header;
-  for (const value of ["Frame 000003 / 5", "PTS 0.025000 s · Δ 75.000 ms", "CSV 0.100000 s",
-    "1920 × 1080 · 120 fps · VFR", "CSV row 3"]) {
+  for (const value of ["Frame 000003 / 5 · 0.025000 s", "Log row 3 · 0.100000 s",
+    "1920 × 1080 · 120 fps · VFR · 10.0 Hz avg"]) {
     const text = texts.find((item) => item.value === value);
     assert.ok(text, value);
     assertInside(text, header);

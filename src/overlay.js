@@ -273,12 +273,12 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  const timeAxes = geometry.orientation === "horizontal" || style.layout === "stacked"
+  const timeAxes = geometry.orientation === "horizontal"
     ? [plots.thrust, plots.pressure]
     : [style.showPressure ? plots.pressure : plots.thrust];
   for (const box of timeAxes.filter(Boolean)) {
     const bottom = box.y + box.height;
-    text(ctx, "CSV time", box.x - 12, bottom + 22, 12, muted, 500, "right");
+    text(ctx, "Time", box.x - 12, bottom + 22, 12, muted, 500, "right");
     for (let i = 0; i <= 4; i++)
       text(ctx, data || theory?.data
         ? `${Number((domain.start + (domain.duration * i) / 4).toFixed(domain.duration < 1 ? 3 : 2))} s`
@@ -429,9 +429,11 @@ export function drawOverlay(
     const x = panel.x + 22;
     const contentWidth = panel.width - 44;
     text(ctx, style.title, x, top + 31, 19, fg, 650, "left", contentWidth);
-    text(ctx, status, x, top + 57, 14, muted, 500, "left", contentWidth);
+    const stackedStatus = status === "TELEMETRY" ? "" : status.replace(/ · TELEMETRY$/, "");
+    if (stackedStatus)
+      text(ctx, stackedStatus, x, top + 57, 14, muted, 500, "left", contentWidth);
     if (visibleMeasurement)
-      text(ctx, `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
+      text(ctx, `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s`,
         x, top + 88, 18, fg, 600, "left", contentWidth);
     if (theory?.data) {
       text(ctx, "Measured", x, top + 116, 15, muted, 500);
@@ -470,7 +472,7 @@ export function drawOverlay(
     if (visibleMeasurement)
       text(
         ctx,
-        `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
+        `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s`,
         width * 0.48,
         top + 28,
         16,

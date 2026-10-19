@@ -38,9 +38,11 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
     };
     CanvasRenderingContext2D.prototype.fillText = function (text, x, y, ...arguments_) {
       if (this.canvas.id === "preview") {
-        const point = new DOMPoint(x, y).matrixTransform(this.getTransform());
+        const transform = this.getTransform();
+        const point = new DOMPoint(x, y).matrixTransform(transform);
         window.__templateDrawing.texts.push({ text: String(text), x: point.x, y: point.y,
-          font: this.font, color: this.fillStyle, shadowColor: this.shadowColor, shadowBlur: this.shadowBlur });
+          font: this.font, color: this.fillStyle, shadowColor: this.shadowColor, shadowBlur: this.shadowBlur,
+          width: this.measureText(String(text)).width * Math.hypot(transform.a, transform.b), align: this.textAlign });
       }
       return fillText.call(this, text, x, y, ...arguments_);
     };
@@ -228,7 +230,7 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       const headerBottom = geometry.header.y + geometry.header.height;
       for (const content of ["QA MOTOR 10", "2026-10-20", "SERIES-007", "LOCAL LOGGER", "BRIGHT FIELD CAMERA"])
         assert.ok(texts.some(({ text, y }) => text.includes(content) && y > headerBottom && y < footerTop), `${content} should sit over footage`);
-      for (const expression of [/^Frame /, /^CSV row /]) {
+      for (const expression of [/^Frame /, /^Log row /]) {
         const labels = texts.filter(({ text }) => expression.test(text));
         assert.equal(labels.length, 1, `${expression} must be displayed once without duplicate footage labels`);
         assert.ok(labels[0].y > geometry.header.y && labels[0].y < headerBottom, `${expression} should be in the top header`);
@@ -237,12 +239,26 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
         assert.ok(texts.some(({ text, y }) => expression.test(text) && y > headerBottom && y < footerTop), `${expression} should be present over footage`);
       for (const filename of ["bright-field-source.mp4", "measured-long-tail.csv"])
         assert.ok(texts.some(({ text, y }) => text.includes(filename) && y >= footerTop), `${filename} should remain in the source footer`);
-      assert.ok(texts.some(({ text, y }) => /960 × 540.*fps.*VFR/.test(text) && y < headerBottom), "The header should identify source dimensions and variable frame timing");
-      assert.ok(texts.some(({ text, y }) => /50\.0 Hz avg.*ms \/ kgf \/ bar/.test(text) && y < headerBottom), "The header should identify logger cadence and original source units");
+      const top = texts.filter(({ y }) => y < headerBottom);
+      assert.equal(top.length, 3, "The landscape header should contain three compact fields without separate category headings");
+      assert.ok(geometry.header.height <= 48, "The landscape technical strip should leave room for footage");
+      assert.ok(Math.max(...top.map(({ y }) => y)) - Math.min(...top.map(({ y }) => y)) <= 1,
+        "Landscape frame, log, and acquisition fields must share one horizontal baseline");
+      const bounds = top.map(({ x, width, align }) => ({ left: x - (align === "right" ? width : align === "center" ? width / 2 : 0), width }))
+        .sort((a, b) => a.left - b.left);
+      assert.ok(bounds[0].left >= 0 && bounds.at(-1).left + bounds.at(-1).width <= geometry.header.width,
+        "Technical fields must stay inside the video header");
+      for (let index = 1; index < bounds.length; index++) assert.ok(bounds[index].left >= bounds[index - 1].left + bounds[index - 1].width + 12,
+        "Compact header fields must keep readable spacing without overlaps");
+      assert.ok(top.some(({ text }) => /960 × 540.*fps.*VFR.*50\.0 Hz avg/.test(text)), "One acquisition field should identify dimensions, source cadence, variable timing, and logger cadence");
+      assert.ok(!top.some(({ text }) => /CSV|VIDEO FRAME|CSV POSITION|ACQUISITION|PTS|Δ|kgf \/ bar/.test(text)),
+        "The compact header should avoid redundant categories and detailed diagnostics retained in the inspector");
+      assert.ok(!texts.some(({ text, y }) => y > headerBottom && y < footerTop && /CSV time|· CSV/.test(text)),
+        "Burn duration and graph time labels must not repeat the CSV source label over footage");
       assert.ok(!texts.some(({ text }) => /NaN|undefined|Infinity/.test(text)), "The video must contain valid readable values");
     });
 
-    await caseOf("header frame numbers, native PTS, unequal frame intervals, and logger rows remain accurate for VFR", async () => {
+    await caseOf("compact frame and log fields preserve native VFR clocks while the inspector retains exact frame intervals", async () => {
       await seek(2);
       const intervals = [];
       for (let step = 0; step < 4; step++) {
@@ -257,16 +273,23 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
         const nextPTS = sourceTimestamps[counter] ?? 3.2;
         const { texts } = await drawing();
         const top = texts.filter(({ y }) => y < geometry.header.y + geometry.header.height);
-        assert.ok(top.some(({ text }) => text === `Frame ${String(counter).padStart(6, "0")} / 96`));
-        assert.ok(top.some(({ text }) => text.includes(`PTS ${expectedPTS.toFixed(6)} s`) && text.includes(`Δ ${((nextPTS - expectedPTS) * 1000).toFixed(3)} ms`)),
+        assert.ok(top.some(({ text }) => text === `Frame ${String(counter).padStart(6, "0")} / 96 · ${expectedPTS.toFixed(6)} s`),
           `Top header must use the source packet clock for frame ${counter}: ${JSON.stringify(top)}`);
         const row = await page.locator("#video-log-row").textContent();
-        assert.ok(top.some(({ text }) => text.startsWith(`CSV row ${row}`)), `Header log lines must match the time-based inspector: ${row}`);
-        assert.ok(top.some(({ text }) => text.startsWith(`CSV ${expectedPTS.toFixed(6)} s`)), "CSV clock must follow native seconds rather than frame or row counts");
+        assert.ok(top.some(({ text }) => text === `Log row ${row} · ${expectedPTS.toFixed(6)} s`),
+          `One log field must combine matching physical rows with the native-seconds CSV clock: ${row}`);
+        assert.equal(Number.parseFloat(await page.locator("#video-frame-interval").textContent()), Number(((nextPTS - expectedPTS) * 1000).toFixed(3)),
+          "Detailed unequal frame intervals must remain available in the source inspector");
         intervals.push((nextPTS - expectedPTS).toFixed(6));
       }
       assert.ok(new Set(intervals).size > 1, "The fixture must exercise unequal source frame intervals");
       await seek(2);
+      await page.locator("#tool-timeline").click(); await change("sync-offset", 0.123456); await seek(2);
+      const shiftedTop = (await drawing()).texts.filter(({ y }) => y < geometry.header.y + geometry.header.height);
+      const row = await page.locator("#video-log-row").textContent();
+      assert.ok(shiftedTop.some(({ text }) => /^Frame .* · 2\.000000 s$/.test(text)), "Offsetting telemetry must not change the source frame clock");
+      assert.ok(shiftedTop.some(({ text }) => text === `Log row ${row} · 1.876544 s`), "The compact log field must retain its own shifted clock rather than reusing the video timestamp");
+      await change("sync-offset", 0); await seek(2);
     });
 
     await caseOf("framing sliders and keyboard controls position footage without changing synchronization or analysis", async () => {
@@ -329,7 +352,7 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       await range("video-position-y", -50); await range("video-scale", 200);
       const { texts } = await drawing();
       const headerLabels = texts.filter(({ y }) => y < geometry.header.y + geometry.header.height);
-      assert.ok(headerLabels.some(({ text }) => /^Frame /.test(text)) && headerLabels.some(({ text }) => /^CSV row /.test(text)),
+      assert.ok(headerLabels.some(({ text }) => /^Frame /.test(text)) && headerLabels.some(({ text }) => /^Log row /.test(text)),
         "Panning beyond the top of the canvas must not overwrite the technical header");
       const headerPixels = await preview.evaluate((canvas) => Array.from(canvas.getContext("2d").getImageData(1, 1, 1, 1).data));
       assert.ok(Math.max(...headerPixels.slice(0, 3)) < 80, `The bright source should remain clipped below the opaque header: ${headerPixels}`);
@@ -403,19 +426,19 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       assert.ok(contrast.outside > 240, `The synthetic recording should remain bright: ${JSON.stringify(contrast)}`);
       assert.ok(contrast.brightness > 20 && contrast.brightness < 115, `The panel should darken bright footage without becoming fully opaque: ${JSON.stringify(contrast)}`);
       await range("overlay-opacity", 0);
-      const transparent = await page.locator("#preview").evaluate((canvas, box) => {
+      const transparent = await page.locator("#preview").evaluate((canvas, { box, body }) => {
         const data = canvas.getContext("2d").getImageData(Math.round(box.x + 5), Math.round(box.y + 20), 1, 1).data;
         const motor = window.__templateDrawing.texts.find(({ text }) => text === "QA MOTOR 10");
         const fontSize = Number(motor.font.match(/([\d.]+)px/)[1]);
         const glyphs = canvas.getContext("2d").getImageData(Math.floor(motor.x - 4), Math.floor(motor.y - fontSize - 4), 230, Math.ceil(fontSize + 12)).data;
         let dark = 0;
         for (let index = 0; index < glyphs.length; index += 4) if (Math.max(glyphs[index], glyphs[index + 1], glyphs[index + 2]) < 120) dark++;
-        const body = window.__templateDrawing.texts.filter(({ y }) => y > 68 && y < 1038);
-        const protectedText = body.every((label) =>
+        const bodyLabels = window.__templateDrawing.texts.filter(({ y }) => y > body.y && y < body.y + body.height);
+        const protectedText = bodyLabels.every((label) =>
           window.__templateDrawing.strokes.some((stroke) => stroke.text === label.text && stroke.x === label.x && stroke.y === label.y && stroke.width >= 2) ||
           (label.shadowBlur >= 2 && label.shadowColor !== "rgba(0, 0, 0, 0)"));
         return { brightness: (data[0] + data[1] + data[2]) / 3, dark, protectedText };
-      }, thrustBox);
+      }, { box: thrustBox, body: geometry.videoFrame });
       assert.ok(transparent.brightness > 240, `Zero opacity must reveal the bright source instead of clamping the panel to a dark minimum: ${JSON.stringify(transparent)}`);
       assert.ok(transparent.dark > 150, `The light motor label must retain a contrasting outline on fully transparent white footage: ${JSON.stringify(transparent)}`);
       assert.equal(transparent.protectedText, true, "Labels and scales over transparent footage must keep an independent contrasting edge or shadow");
@@ -446,7 +469,7 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
         assert.equal(await input.getPrimaryAudioTrack(), null);
         const duration = await input.computeDuration(); assert.ok(duration >= 1 && duration < 1.1);
       } finally { input.dispose(); }
-      const rendered = await page.evaluate(async (box) => {
+      const rendered = await page.evaluate(async ({ box, header, body }) => {
         const expected = window.__templateExpected;
         const video = document.createElement("video"); video.muted = true; video.preload = "auto"; video.src = document.querySelector("#download-again").href;
         await new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = reject; });
@@ -467,20 +490,20 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
           return count;
         };
         let headerError = 0, headerCount = 0;
-        for (let y = 0; y < 68; y += 2) for (let x = 0; x < canvas.width; x += 4) {
+        for (let y = Math.ceil(header.y); y < header.y + header.height; y += 2) for (let x = 0; x < canvas.width; x += 4) {
           const index = (y * canvas.width + x) * 4;
           for (let channel = 0; channel < 3; channel++) { headerError += Math.abs(actual[index + channel] - expected.pixels[index + channel]); headerCount++; }
         }
         // Four source corners and exposed matte make an incorrect framing
         // transform visible even when the recording's center is plain white.
         let sourceError = 0, sourceCount = 0;
-        for (let y = 72; y < 1036; y += 8) for (let x = 0; x < 1000; x += 8) {
+        for (let y = Math.ceil(body.y + 4); y < body.y + body.height - 2; y += 8) for (let x = 0; x < 1000; x += 8) {
           const index = (y * canvas.width + x) * 4;
           for (let channel = 0; channel < 3; channel++) { sourceError += Math.abs(actual[index + channel] - expected.pixels[index + channel]); sourceCount++; }
         }
         return { error: error / count, headerError: headerError / headerCount, sourceError: sourceError / sourceCount,
           expectedGold: gold(expected.pixels), actualGold: gold(actual), frame: canvas.toDataURL("image/png") };
-      }, thrustBox);
+      }, { box: thrustBox, header: geometry.header, body: geometry.videoFrame });
       await writeFile(join(outputDir, "templates-stacked-export-frame.png"), Buffer.from(rendered.frame.split(",")[1], "base64"));
       assert.ok(rendered.error < 10, `Stacked export differs from preview by ${rendered.error}`);
       assert.ok(rendered.headerError < 10, `Exported source header differs from preview by ${rendered.headerError}`);
@@ -511,6 +534,25 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
         "The replaced source must not retain an active pointer draft");
       if (await button.getAttribute("aria-pressed") === "true") await button.click();
       assert.deepEqual((await drawing()).videos.at(-1), [geometry.video.x, geometry.video.y, geometry.video.width, geometry.video.height]);
+    });
+
+    await caseOf("portrait output wraps the compact header into two readable rows without repeating categories", async () => {
+      await select("frame-aspect", "portrait");
+      assert.deepEqual(await page.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]), [1080, 1920]);
+      const portrait = compositionGeometry(1080, 1920, 960, 540, { ...stackedStyle, frameAspect: "portrait" });
+      const top = (await drawing()).texts.filter(({ y }) => y < portrait.header.y + portrait.header.height);
+      assert.equal(top.length, 3);
+      assert.ok(portrait.header.height <= 80, "Narrow output should use at most two compact technical rows");
+      const frameLabel = top.find(({ text }) => /^Frame /.test(text));
+      const logLabel = top.find(({ text }) => /^Log row /.test(text));
+      const acquisition = top.find(({ text }) => /960 × 540.*fps.*VFR.*50\.0 Hz avg/.test(text));
+      assert.ok(frameLabel && logLabel && acquisition);
+      assert.equal(frameLabel.y, logLabel.y, "The camera and log clocks should remain side by side");
+      assert.ok(acquisition.y > frameLabel.y + 16, "Acquisition details should wrap once below the two clocks");
+      assert.ok(!top.some(({ text }) => /CSV|VIDEO FRAME|CSV POSITION|ACQUISITION|PTS|Δ/.test(text)));
+      await writeFile(join(outputDir, "templates-stacked-portrait-header.png"), Buffer.from((await image()).split(",")[1], "base64"));
+      await select("frame-aspect", "landscape");
+      assert.deepEqual(await page.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]), [1920, 1080]);
     });
 
     await caseOf("templates remain accessible in Ukrainian and English on mobile without changing output format", async () => {
