@@ -161,6 +161,12 @@
       </div>
     </header>
     <main class="shell">
+      <nav class="studio-modes" id="studio-modes" role="tablist" aria-label="Workspace" data-i18n-aria-label="Workspace">
+        <button id="mode-video" class="active" role="tab" aria-selected="true" aria-controls="video-editor" data-panel="video"><span data-i18n="Video editor">Video editor</span></button>
+        <button id="mode-analysis" role="tab" aria-selected="false" aria-controls="profile-analysis" data-panel="profiles" tabindex="-1"><span data-i18n="Burn profile analysis">Burn profile analysis</span></button>
+      </nav>
+      <section id="video-editor" role="tabpanel" aria-labelledby="mode-video">
+
       <div class="page-heading">
         <div>
           <div class="eyebrow">
@@ -2086,6 +2092,498 @@
           </div>
         </section>
       </div>
+
+      </section>
+      <section id="profile-analysis" role="tabpanel" aria-labelledby="mode-analysis" aria-busy="false" hidden>
+        <div class="page-heading profile-heading">
+          <div>
+            <h1 data-i18n="Burn profile analysis">
+              Burn profile analysis
+            </h1>
+            <p data-i18n="Add CSV logs, align burn events, and compare measurements.">
+              Add CSV logs, align burn events, and compare measurements.
+            </p>
+          </div>
+          <div class="profile-actions">
+            <button id="profiles-demo" class="button secondary" data-i18n="Compare examples">
+              Compare examples
+            </button>
+            <button id="profiles-add" class="button primary" data-i18n="Add CSV logs">
+              Add CSV logs
+            </button>
+            <input id="profiles-input" type="file" accept=".csv,.tsv,.txt,text/csv" multiple hidden>
+          </div>
+        </div>
+        <div id="profiles-notice" class="profile-notice" role="status" aria-live="polite" hidden>
+        </div>
+        <div class="profile-workspace">
+          <aside class="panel profile-sources">
+            <div class="profile-section-title">
+              <h2 data-i18n="Profiles">
+                Profiles
+              </h2>
+              <span id="profiles-count" class="profile-count">
+                0 / 12
+              </span>
+              <span id="profiles-processing" class="small muted" role="status" hidden data-i18n="Processing CSV logs…">Processing CSV logs…</span>
+              <button id="profiles-clear" class="text-button" data-i18n="Clear all">
+                Clear all
+              </button>
+            </div>
+            <details class="profile-disclosure">
+              <summary data-i18n="Import format">
+                Import format
+              </summary>
+              <div class="profile-format-grid">
+                <label>
+                  <span data-i18n="CSV time unit">
+                    CSV time unit
+                  </span>
+                  <select id="profiles-source-time">
+                    <option value="auto" data-i18n="From header · ms / µs / s">
+                      From header · ms / µs / s
+                    </option>
+                    <option value="ms">
+                      ms
+                    </option>
+                    <option value="us">
+                      µs
+                    </option>
+                    <option value="s">
+                      s
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="CSV thrust">
+                    CSV thrust
+                  </span>
+                  <select id="profiles-source-thrust">
+                    <option>
+                      N
+                    </option>
+                    <option>
+                      kN
+                    </option>
+                    <option>
+                      kgf
+                    </option>
+                    <option>
+                      gf
+                    </option>
+                    <option>
+                      lbf
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="CSV pressure">
+                    CSV pressure
+                  </span>
+                  <select id="profiles-source-pressure">
+                    <option>
+                      bar
+                    </option>
+                    <option>
+                      Pa
+                    </option>
+                    <option>
+                      MPa
+                    </option>
+                    <option>
+                      kPa
+                    </option>
+                    <option>
+                      psi
+                    </option>
+                    <option>
+                      atm
+                    </option>
+                  </select>
+                </label>
+              </div>
+              <p class="small muted" data-i18n="Applies to new files. Existing profiles have their own source units.">
+                Applies to new files. Existing profiles have their own source units.
+              </p>
+            </details>
+            <div id="profiles-drop" class="profile-drop" tabindex="0" role="button" aria-label="Add CSV logs" data-i18n-aria-label="Add CSV logs">
+              <strong data-i18n="Drop multiple CSV files here">
+                Drop multiple CSV files here
+              </strong>
+              <span data-i18n="Up to 12 logs · local processing only">
+                Up to 12 logs · local processing only
+              </span>
+            </div>
+            <div id="profiles-list" class="profile-list" role="list">
+            </div>
+          </aside>
+          <div class="profile-charts">
+            <div class="panel profile-controls">
+              <label>
+                <span data-i18n="Reference profile">
+                  Reference profile
+                </span>
+                <select id="profiles-reference" aria-label="Reference profile" data-i18n-aria-label="Reference profile">
+                </select>
+              </label>
+              <label>
+                <span data-i18n="Align profiles">
+                  Align profiles
+                </span>
+                <select id="profiles-alignment">
+                  <option value="ignition" data-i18n="Ignition at zero">
+                    Ignition at zero
+                  </option>
+                  <option value="burnout" data-i18n="Burnout at zero">
+                    Burnout at zero
+                  </option>
+                  <option value="normalized" data-i18n="Both events · 0–100%">
+                    Both events · 0–100%
+                  </option>
+                  <option value="source" data-i18n="Original CSV time">
+                    Original CSV time
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span data-i18n="Signal">
+                  Signal
+                </span>
+                <select id="profiles-metric">
+                  <option value="thrust" data-i18n="Thrust">
+                    Thrust
+                  </option>
+                  <option value="pressure" data-i18n="Pressure">
+                    Pressure
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span data-i18n="Chart view">
+                  Chart view
+                </span>
+                <select id="profiles-trace">
+                  <option value="raw" data-i18n="Raw measurements">
+                    Raw measurements
+                  </option>
+                  <option value="trend" data-i18n="Moving mean">
+                    Moving mean
+                  </option>
+                  <option value="residual" data-i18n="Trend residual">
+                    Trend residual
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span data-i18n="Thrust unit">
+                  Thrust unit
+                </span>
+                <select id="profiles-thrust-unit">
+                  <option>
+                    N
+                  </option>
+                  <option>
+                    kN
+                  </option>
+                  <option>
+                    kgf
+                  </option>
+                  <option>
+                    gf
+                  </option>
+                  <option>
+                    lbf
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span data-i18n="Pressure unit">
+                  Pressure unit
+                </span>
+                <select id="profiles-pressure-unit">
+                  <option>
+                    bar
+                  </option>
+                  <option>
+                    MPa
+                  </option>
+                  <option>
+                    kPa
+                  </option>
+                  <option>
+                    Pa
+                  </option>
+                  <option>
+                    psi
+                  </option>
+                  <option>
+                    atm
+                  </option>
+                </select>
+              </label>
+              <details class="profile-disclosure profile-methods">
+                <summary data-i18n="Detection and noise settings">
+                  Detection and noise settings
+                </summary>
+                <div class="profile-method-grid">
+                  <label>
+                    <span data-i18n="Burn threshold (% of peak)">
+                      Burn threshold (% of peak)
+                    </span>
+                    <input id="profiles-threshold" type="number" min="0.1" max="99.9" step="0.1" value="5">
+                  </label>
+                  <label>
+                    <span data-i18n="Moving window (ms)">
+                      Moving window (ms)
+                    </span>
+                    <input id="profiles-noise-window" type="number" min="1" max="10000" step="1" value="100">
+                  </label>
+                  <button class="info-button" aria-label="About profile calculations" data-i18n-aria-label="About profile calculations" data-help="Events use the first rise and final decay through the threshold. Noise is the time-weighted RMS residual from a centered moving mean, over the middle 80% of the selected burn unless you set a custom interval. It includes real signal fluctuations and is not calibrated sensor uncertainty. Missing intervals are never bridged." data-i18n-data-help="Events use the first rise and final decay through the threshold. Noise is the time-weighted RMS residual from a centered moving mean, over the middle 80% of the selected burn unless you set a custom interval. It includes real signal fluctuations and is not calibrated sensor uncertainty. Missing intervals are never bridged.">
+                    i
+                  </button>
+                </div>
+              </details>
+            </div>
+            <div id="profiles-pick-status" class="profile-pick-status" role="status" hidden>
+              <span id="profiles-pick-text">
+              </span>
+              <button id="profiles-pick-cancel" class="text-button" data-i18n="Cancel">
+                Cancel
+              </button>
+            </div>
+            <div class="panel profile-plot-panel">
+              <div class="profile-section-title">
+                <h2 data-i18n="Profile overlay">
+                  Profile overlay
+                </h2>
+                <button class="info-button" aria-label="About profile alignment" data-i18n-aria-label="About profile alignment" data-help="Ignition and burnout alignment shift only the display clock. Both events maps each selected burn to 0–100% for shape comparison. Original durations, impulse, and specific impulse remain unchanged. Drag A/B markers or use the event fields to refine boundaries. Zoom with the wheel, drag to pan, and double-click to fit." data-i18n-data-help="Ignition and burnout alignment shift only the display clock. Both events maps each selected burn to 0–100% for shape comparison. Original durations, impulse, and specific impulse remain unchanged. Drag A/B markers or use the event fields to refine boundaries. Zoom with the wheel, drag to pan, and double-click to fit.">
+                  i
+                </button>
+                <button id="profiles-fit" class="text-button" data-i18n="Fit profiles">
+                  Fit profiles
+                </button>
+              </div>
+              <div id="profiles-legend" class="profile-legend">
+              </div>
+              <div class="profile-canvas-wrap">
+                <canvas id="profiles-chart" tabindex="0" aria-label="Compared burn profiles" data-i18n-aria-label="Compared burn profiles">
+                </canvas>
+                <div id="profiles-empty" class="profile-chart-empty">
+                  <strong data-i18n="Compare your burn profiles">
+                    Compare your burn profiles
+                  </strong>
+                  <span data-i18n="Add two or more CSV logs. No video is required.">
+                    Add two or more CSV logs. No video is required.
+                  </span>
+                </div>
+              </div>
+              <div id="profiles-hover" class="profile-hover" aria-live="off">
+              </div>
+            </div>
+            <div class="panel profile-plot-panel">
+              <div class="profile-section-title">
+                <h2 data-i18n="Difference from reference">
+                  Difference from reference
+                </h2>
+                <button class="info-button" aria-label="About profile differences" data-i18n-aria-label="About profile differences" data-help="Candidate minus reference, using raw measurements on the common selected burn interval. RMSE and mean error are time-weighted. Only overlapping valid data contributes; gaps and unsupported extrapolation stay empty. The normalized view compares burn phase, without changing the original metrics." data-i18n-data-help="Candidate minus reference, using raw measurements on the common selected burn interval. RMSE and mean error are time-weighted. Only overlapping valid data contributes; gaps and unsupported extrapolation stay empty. The normalized view compares burn phase, without changing the original metrics.">
+                  i
+                </button>
+                <span class="small muted" data-i18n="Raw data · common selected interval">
+                  Raw data · common selected interval
+                </span>
+              </div>
+              <canvas id="profiles-difference" tabindex="0" aria-label="Difference between burn profiles" data-i18n-aria-label="Difference between burn profiles">
+              </canvas>
+              <p id="profiles-difference-status" class="profile-difference-status small muted" role="status"></p>
+            </div>
+          </div>
+        </div>
+        <section class="panel profile-results" aria-labelledby="profiles-results-title">
+          <div class="profile-section-title">
+            <h2 id="profiles-results-title" data-i18n="Comparison results">
+              Comparison results
+            </h2>
+            <button class="info-button" aria-label="About specific impulse" data-i18n-aria-label="About specific impulse" data-help="Results use original CSV seconds over the selected burn interval. Impulse integrates positive thrust; means use valid measured time. Specific impulse is I/(m × 9.80665), using consumed propellant mass in kg. It is unavailable without mass or with missing intervals. Thrust and pressure alone do not determine thermal efficiency." data-i18n-data-help="Results use original CSV seconds over the selected burn interval. Impulse integrates positive thrust; means use valid measured time. Specific impulse is I/(m × 9.80665), using consumed propellant mass in kg. It is unavailable without mass or with missing intervals. Thrust and pressure alone do not determine thermal efficiency.">
+              i
+            </button>
+            <span class="small muted" data-i18n="Original time · selected burn interval">
+              Original time · selected burn interval
+            </span>
+            <button id="profiles-export" class="button secondary" disabled data-i18n="Export comparison CSV">
+              Export comparison CSV
+            </button>
+          </div>
+          <div class="profile-table-scroll" tabindex="0" role="region" aria-label="Comparison results" data-i18n-aria-label="Comparison results">
+            <table id="profiles-table">
+              <thead>
+              </thead>
+              <tbody>
+              </tbody>
+            </table>
+          </div>
+          <p id="profiles-results-empty" class="small muted" data-i18n="Metrics appear after importing a CSV log.">
+            Metrics appear after importing a CSV log.
+          </p>
+        </section>
+        <details class="profile-method-notes">
+          <summary data-i18n="Calculation notes">
+            Calculation notes
+          </summary>
+          <p data-i18n="This workspace compares measurements; it does not correct calibration or infer missing samples. Review detected events and source units before comparing. Noise residual depends on the moving-window width and selected interval. Unequal sample rates are compared by time, not by row number.">
+            This workspace compares measurements; it does not correct calibration or infer missing samples. Review detected events and source units before comparing. Noise residual depends on the moving-window width and selected interval. Unequal sample rates are compared by time, not by row number.
+          </p>
+          <a href="https://www1.grc.nasa.gov/beginners-guide-to-aeronautics/specific-impulse/" target="_blank" rel="noopener noreferrer" data-i18n="Specific impulse methodology · NASA">
+            Specific impulse methodology · NASA
+          </a>
+        </details>
+        <template id="profile-card-template">
+          <article class="profile-card" role="listitem">
+            <div class="profile-card-heading">
+              <input data-field="visible" type="checkbox" checked>
+              <span class="profile-swatch">
+              </span>
+              <h3 class="profile-name">
+              </h3>
+              <button data-action="reference" class="profile-reference text-button" data-i18n="Reference">
+                Reference
+              </button>
+              <button data-action="remove" class="profile-remove icon-button" aria-label="Remove profile" data-i18n-aria-label="Remove profile">
+                ×
+              </button>
+            </div>
+            <p class="profile-source-meta small muted">
+            </p>
+            <div class="profile-event-grid">
+              <label>
+                <span data-i18n="Ignition (s)">
+                  Ignition (s)
+                </span>
+                <span class="profile-event-input">
+                  <input data-field="start" type="number" step="0.000001">
+                  <button data-action="pick-start" class="profile-pick-button" title="Pick ignition on chart" data-i18n-title="Pick ignition on chart">
+                    ⌖
+                  </button>
+                </span>
+              </label>
+              <label>
+                <span data-i18n="Burnout (s)">
+                  Burnout (s)
+                </span>
+                <span class="profile-event-input">
+                  <input data-field="end" type="number" step="0.000001">
+                  <button data-action="pick-end" class="profile-pick-button" title="Pick burnout on chart" data-i18n-title="Pick burnout on chart">
+                    ⌖
+                  </button>
+                </span>
+              </label>
+            </div>
+            <div class="profile-card-tools">
+              <label>
+                <span data-i18n="Consumed propellant (g)">
+                  Consumed propellant (g)
+                </span>
+                <input data-field="mass" type="number" min="0.001" step="0.01" placeholder="Optional" data-i18n-placeholder="Optional">
+              </label>
+              <button data-action="detect" class="text-button" data-i18n="Detect burn">
+                Detect burn
+              </button>
+            </div>
+            <p class="profile-card-error" role="status" hidden>
+            </p>
+            <ul class="profile-card-warnings" hidden>
+            </ul>
+            <details class="profile-disclosure">
+              <summary data-i18n="Source units and noise interval">
+                Source units and noise interval
+              </summary>
+              <div class="profile-format-grid">
+                <label>
+                  <span data-i18n="CSV time unit">
+                    CSV time unit
+                  </span>
+                  <select data-field="timeUnit">
+                    <option value="auto" data-i18n="From header · ms / µs / s">
+                      From header · ms / µs / s
+                    </option>
+                    <option value="ms">
+                      ms
+                    </option>
+                    <option value="us">
+                      µs
+                    </option>
+                    <option value="s">
+                      s
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="CSV thrust">
+                    CSV thrust
+                  </span>
+                  <select data-field="thrustUnit">
+                    <option>
+                      N
+                    </option>
+                    <option>
+                      kN
+                    </option>
+                    <option>
+                      kgf
+                    </option>
+                    <option>
+                      gf
+                    </option>
+                    <option>
+                      lbf
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="CSV pressure">
+                    CSV pressure
+                  </span>
+                  <select data-field="pressureUnit">
+                    <option>
+                      bar
+                    </option>
+                    <option>
+                      Pa
+                    </option>
+                    <option>
+                      MPa
+                    </option>
+                    <option>
+                      kPa
+                    </option>
+                    <option>
+                      psi
+                    </option>
+                    <option>
+                      atm
+                    </option>
+                  </select>
+                </label>
+              </div>
+              <div class="profile-event-grid">
+                <label>
+                  <span data-i18n="Noise from (s)">
+                    Noise from (s)
+                  </span>
+                  <input data-field="noiseStart" type="number" step="0.000001" placeholder="Automatic" data-i18n-placeholder="Automatic">
+                </label>
+                <label>
+                  <span data-i18n="Noise to (s)">
+                    Noise to (s)
+                  </span>
+                  <input data-field="noiseEnd" type="number" step="0.000001" placeholder="Automatic" data-i18n-placeholder="Automatic">
+                </label>
+              </div>
+              <p class="small muted profile-noise-range">
+              </p>
+            </details>
+          </article>
+        </template>
+      </section>
       <footer class="site-footer">
         <span
           >FLAMESYNC <span class="footer-separator">/</span>

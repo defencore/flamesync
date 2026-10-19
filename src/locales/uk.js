@@ -1,4 +1,6 @@
+import { profilesUk } from "./profiles-uk.js";
 export const uk = {
+  ...profilesUk,
   "FlameSync — Burn Video Studio": "FlameSync — Відео з телеметрією",
   "FlameSync home": "Головна FlameSync",
   "Interface language": "Мова інтерфейсу",

@@ -49,13 +49,20 @@ test("dynamic interface messages and validation errors have translations", async
       check(node.whenFalse);
     }
   }
-  const directory = new URL("../src/", import.meta.url);
-  for (const file of (await readdir(directory)).filter((name) =>
-    name.endsWith(".js"),
-  )) {
+  async function* sourceFiles(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name !== "locales")
+          yield* sourceFiles(new URL(`${entry.name}/`, directory));
+      } else if (entry.isFile() && entry.name.endsWith(".js")) {
+        yield new URL(entry.name, directory);
+      }
+    }
+  }
+  for await (const file of sourceFiles(new URL("../src/", import.meta.url))) {
     const source = ts.createSourceFile(
-      file,
-      await readFile(new URL(file, directory), "utf8"),
+      file.pathname,
+      await readFile(file, "utf8"),
       ts.ScriptTarget.Latest,
       true,
     );

@@ -2,6 +2,7 @@ export function bindEditorShortcuts(editor) {
   function onKeyDown(event) {
     const target = event.target;
     if (
+      document.getElementById("video-editor")?.hidden ||
       event.defaultPrevented ||
       event.altKey ||
       target?.closest?.(

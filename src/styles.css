@@ -1,5 +1,6 @@
 @import url("./tokens.css");
 @import url("./timeline.css");
+@import url("./profiles/styles.css");
 
 * {
   box-sizing: border-box;

@@ -12,6 +12,20 @@ A static, browser-local video studio for **flamesync.defencore.com**. Combine st
 
 These instructions use the English labels. The header language selector switches between **UA** and **EN**. Ukrainian users follow **Файли й дані → Синхронізація й обрізка → Зберегти відео**; advanced timing correction and longer explanations remain in disclosures and information tooltips.
 
+## Compare burn profiles
+
+Open **Burn profile analysis** beside **Video editor** to work with CSV logs independently of the video project. Add or drop up to 12 logs (20 MB per file, 100 MB total). Choose source units for new imports or change an individual profile's units. Millisecond, microsecond, second, and nonzero logger clocks are compared by timestamp; unequal acquisition rates are never matched by row number.
+
+The initial 5% peak threshold suggests the first observed ignition and final burnout. Review the A/B source times, enter exact values, or select a profile and pick/drag its markers on the graph. Missing observed events remain blank. **Ignition at zero** and **Burnout at zero** shift the display clock; **Both events · 0–100%** maps each selected burn to burn phase for shape comparison. These views never change the original duration, impulse, or specific impulse. Use the wheel to zoom, drag to pan, and double-click or **Fit profiles** to fit. Both charts share their visible time window.
+
+Choose a reference profile to inspect candidate-minus-reference curves, time-weighted RMSE, mean difference, and impulse change. Differences use raw measurements only on the common selected burn interval, with interpolation within valid source segments and no extrapolation across missing intervals. The table retains original physical metrics even when display units or chart alignment change.
+
+**Moving mean** and **Trend residual** views help examine signal variation. Residual RMS uses a centered time-window mean (100 ms initially), integrated over the middle 80% of the selected burn. Each profile can use a custom noise interval in original CSV seconds, including a baseline interval. Complete source-window support is required; missing data and unsupported edges are excluded. Residual includes real combustion fluctuations and measurement noise, so it is not calibrated sensor uncertainty or a sample-rate-independent sensor specification. Different bandwidths and logger processing still affect comparisons.
+
+Enter consumed propellant in grams to calculate measured **specific impulse** as `I / (m × 9.80665)`, with mass converted to kilograms. Without mass or with missing burn coverage, specific impulse remains unavailable. Thrust and pressure alone do not establish thermal efficiency. See [NASA's specific impulse explanation](https://www1.grc.nasa.gov/beginners-guide-to-aeronautics/specific-impulse/). Impulse integrates positive thrust; mean thrust retains the signed measured force over covered time. **Export comparison CSV** saves the original SI values, selected events, difference metrics, and method settings locally. Synthetic comparison examples are generated only when requested.
+
+Analysis runs in a dedicated worker; original logs remain there while bounded, extrema-preserving curves are sent to the UI. Both workspaces retain their independent state when switching tabs. Video playback pauses on entering analysis, and video editing shortcuts are inactive there. Files and analysis are discarded when the tab reloads.
+
 ## Timeline editing
 
 The timeline has its own visible time window. **+ / −** zoom around the playhead, **Fit video** shows the complete source, and **Fit selection** shows the In/Out range. The scrollbar pans a zoomed window. Click or drag the video track or ruler to seek; Alt + wheel zooms at the pointer, while Shift + wheel or horizontal scrolling pans. Zoom and pan change the view only and never retime or trim the export.
@@ -92,6 +106,8 @@ npm run preview
 
 `npm run test:frames -- http://localhost:8080` runs the focused decoded-pixel frame-stepping regressions.
 
+`npm run test:profiles -- http://localhost:8080` runs the focused multi-log comparison checks, including independent clocks and sampling rates, alignment invariance, source/output units, noise, missing intervals, mass-based specific impulse, summary download, language changes, responsive layout, and video-project preservation. The full browser suite includes these checks too. Analytic profile tests use in-memory synthetic data and cover continuous-time integration and resampling.
+
 `npm run test:browser -- http://localhost:8080` runs the full editor and export checks with installed Google Chrome. Set `BROWSER_CHANNEL` for another Playwright browser channel. The checks generate synthetic media, exercise batch import, trimming, synchronization and time stretch, export both formats with audio at a non-default scale, inspect the output, compare the burned-in overlay with the preview, test cancellation, and check mobile layout and network privacy. Generated screenshots and videos use an OS temporary directory and are removed after the checks. Only an explicitly supplied `TEST_RESULTS_DIR` retains them. Both MP4 and WebM encoders must be available to pass the complete export suite.
 
 The Full HD, 4K, and HD presets specify the output size instead of limiting it to the source resolution. **Original resolution** keeps the source longest edge; the chosen output aspect ratio still applies. The source image is always fitted without cropping or distortion.
@@ -121,6 +137,7 @@ Files are read through local Blob URLs. No video or CSV is sent over the network
 
 - `src/app.js`, `src/state.js`, and `src/dom.js`: editor setup, canonical session state, cached element access, and accessible tabs. UI changes share a scheduled refresh; edit-only changes skip source metadata, data summaries, and canvas resizing. Pointer moves coalesce once per animation frame; resized timeline curves are rasterized only for the visible window.
 - `src/source-controller.js` and `src/csv-worker.js`: local source lifecycle, asynchronous CSV parsing and chart reduction, cancellation, and stale-import protection.
+- `src/profiles/`: independent multi-log workspace, worker-owned source lifecycle, exact selected-interval statistics/differences, continuous-time residual noise, shared interactive charts, local summary export, and generated comparison examples. `src/locales/profiles-uk.js` contains its Ukrainian catalog.
 - `src/player-controller.js`, `src/shortcuts.js`, and `src/video-info-controller.js`: presented-frame playback, exclusive Out semantics, range looping, keyboard commands, and source inspection.
 - `src/edit-model.js` and `src/edit-controller.js`: immutable edit snapshots, binary frame-boundary lookup, viewport math, bounded transactional undo/redo, and the sole command path for trim/clock changes.
 - `src/timeline-controller.js`, `src/timeline-view.js`, `src/timeline-interactions.js`, and `src/timeline.css`: trim orchestration, shared visible time axis, cached viewport-resolution curves, pointer capture/cancellation, snapping, and compact timeline controls.
