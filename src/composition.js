@@ -45,7 +45,8 @@ export function drawComposition(
   const video = geometry.video;
   ctx.save();
   ctx.beginPath();
-  ctx.rect(video.x, video.y, video.width, video.height);
+  const videoFrame = style.layout === "stacked" ? geometry.videoFrame : video;
+  ctx.rect(videoFrame.x, videoFrame.y, videoFrame.width, videoFrame.height);
   ctx.clip();
   if (paintVideo) paintVideo(ctx, video.x, video.y, video.width, video.height);
   else drawEmpty(ctx, width, height);

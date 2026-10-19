@@ -12,4 +12,13 @@ export const presentationUk = {
   "Result values": "Підсумкові показники",
   "Impulse with live values": "Імпульс біля поточних значень",
   "Shown beside thrust and pressure": "Поруч із тягою та тиском",
+  "Video position": "Розташування відео",
+  "Reset framing": "Скинути розташування",
+  "About video framing": "Про розташування відео",
+  "Video scale": "Масштаб відео",
+  "Horizontal position": "Горизонтальне зміщення",
+  "Vertical position": "Вертикальне зміщення",
+  "Move video": "Рухати відео",
+  "Drag the video to position it. Arrow keys move it; Shift moves faster. Escape cancels.": "Перетягуйте відео для зміщення. Стрілки рухають його, Shift прискорює рух. Escape скасовує дію.",
+  "Use Move video above the preview to drag the image, or adjust its position and scale here. The header, filenames, and data panels stay fixed. Shifting or enlarging the image can move its edges outside the frame. Reset framing restores the complete centered image. Framing never changes trimming, timing, or telemetry values.": "Натисніть «Рухати відео» над переглядом і перетягніть зображення або налаштуйте його зміщення та масштаб тут. Заголовок, назви файлів і панелі даних залишаються на місці. Під час зміщення чи збільшення краї зображення можуть виходити за кадр. «Скинути розташування» повертає повний відцентрований кадр. Розташування не змінює обрізку, час або значення телеметрії.",
 };

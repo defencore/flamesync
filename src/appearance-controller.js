@@ -9,7 +9,9 @@ export function bindAppearanceControls(editor) {
   $("presentation-layout").onchange = (event) => {
     state.style.layout = event.target.value;
     if (state.style.layout === "stacked")
-      state.style.opacity = Math.max(70, Math.min(95, state.style.opacity));
+      state.style.opacity = Math.max(0, Math.min(95, state.style.opacity));
+    else if (state.style.layout === "overlay")
+      state.style.opacity = Math.max(45, Math.min(100, state.style.opacity));
     editor.refresh();
   };
   $("chart-range").onchange = (event) => {

@@ -18,18 +18,22 @@ function recordingContext(width, height) {
   let transform = { x: 0, y: 0, sx: 1, sy: 1 };
   let path = [];
   let dash = [];
+  let rectangle = null;
   const context = {
     canvas: { width, height },
     font: "10px system-ui",
     textAlign: "left",
     texts: [],
+    outlines: [],
+    clips: [],
     strokes: [],
     fills: [],
     measurements: 0,
     save() {
       transforms.push({ ...transform, font: this.font, align: this.textAlign,
         strokeStyle: this.strokeStyle, lineWidth: this.lineWidth,
-        globalAlpha: this.globalAlpha, dash: [...dash] });
+        globalAlpha: this.globalAlpha, shadowColor: this.shadowColor,
+        shadowBlur: this.shadowBlur, dash: [...dash] });
     },
     restore() {
       const saved = transforms.pop();
@@ -39,6 +43,8 @@ function recordingContext(width, height) {
       this.strokeStyle = saved.strokeStyle;
       this.lineWidth = saved.lineWidth;
       this.globalAlpha = saved.globalAlpha;
+      this.shadowColor = saved.shadowColor;
+      this.shadowBlur = saved.shadowBlur;
       dash = saved.dash;
     },
     translate(x, y) {
@@ -74,11 +80,19 @@ function recordingContext(width, height) {
         font: this.font,
         maximum,
         naturalWidth,
+        alpha: this.globalAlpha ?? 1,
       });
     },
-    beginPath() { path = []; },
-    rect() {},
-    clip() {},
+    strokeText(value, x, y) {
+      this.outlines.push({ value, x, y, color: this.strokeStyle, width: this.lineWidth,
+        shadow: this.shadowBlur });
+    },
+    beginPath() { path = []; rectangle = null; },
+    rect(x, y, width, height) {
+      rectangle = { x: transform.x + x * transform.sx, y: transform.y + y * transform.sy,
+        width: width * transform.sx, height: height * transform.sy };
+    },
+    clip() { if (rectangle) this.clips.push({ ...rectangle }); },
     fillRect(x, y, width, height) {
       this.fills.push({ color: this.fillStyle,
         x: transform.x + x * transform.sx, y: transform.y + y * transform.sy,
@@ -688,7 +702,7 @@ test("on-video template keeps uncropped footage fixed and gives both signals tal
   }
 });
 
-test("on-video metadata and clocks are over the image while all three file identities stay in their footer", () => {
+test("on-video source clocks occupy the top header while metadata and all filenames keep distinct regions", () => {
   const calculated = parseCSV("time_ms;thrust;pressure\n0;0;0\n100;100;20\n200;0;0");
   const theory = { data: calculated, reduced: chartPoints(calculated), offset: 0,
     timeScale: 1, name: "calculated-profile.csv" };
@@ -713,16 +727,23 @@ test("on-video metadata and clocks are over the image while all three file ident
     for (const label of footerLabels)
       assertInside(texts.find(({ value }) => value === label), geometry.sources);
     for (const value of [populated.motor, populated.testDate, "PEAK THRUST", "PEAK PRESSURE",
-      "TOTAL IMPULSE", "Frame 000005 / 5", "CSV row 3", ...recordLabels]) {
+      "TOTAL IMPULSE", ...recordLabels]) {
       const text = texts.find((item) => item.value === value);
       assert.ok(text, value);
       assert.ok(text.bottom < geometry.sources.y, value);
+      assert.ok(text.top >= geometry.videoFrame.y, value);
+    }
+    for (const value of ["Frame 000005 / 5", "CSV row 3", "PTS 0.150000 s · Δ 50.000 ms",
+      "CSV 0.100000 s", "1920 × 1080 · 120 fps", "CSV 10.0 Hz avg · ms / N / bar"]) {
+      const clock = texts.filter((item) => item.value === value);
+      assert.equal(clock.length, 1, value);
+      assertInside(clock[0], geometry.header);
     }
     assert.equal(texts.filter(({ value }) => value === "A").length, 2);
     assert.equal(texts.filter(({ value }) => value === "B").length, 2);
     assert.ok(texts.some(({ value }) => value === "Burn duration 0.100 s · CSV"));
     assert.ok(texts.some(({ value }) => value.includes("TIME STRETCH 200%")));
-    assert.equal(ctx.strokes.filter(({ dash, points }) => dash.join(",") === "6,3" && points.length > 2).length, 2);
+    assert.equal(ctx.strokes.filter(({ dash, points, color }) => color === "#f3d05c" && dash.join(",") === "6,3" && points.length > 2).length, 2);
     for (const text of texts) assertInside(text, { x: 0, y: 0, width, height });
     assertUncompressed(texts);
   }
@@ -742,7 +763,7 @@ test("hiding A/B annotations retains the burn-focused plot domain in every templ
 });
 
 test("on-video panels keep dark translucent backdrops and full-contrast text on bright footage", () => {
-  for (const [opacity, expected] of [[0, 0.7], [78, 0.78], [100, 0.95]]) {
+  for (const [opacity, expected] of [[0, 0], [25, 0.25], [78, 0.78], [100, 0.95]]) {
     const ctx = recordingContext(1920, 1080);
     const style = { ...defaultStyle, layout: "stacked", theme: "light", opacity };
     render(ctx, { style, sourceInfo: source });
@@ -751,6 +772,10 @@ test("on-video panels keep dark translucent backdrops and full-contrast text on 
     assert.equal(backdrop.color, `rgba(10,18,25,${expected})`);
     assert.ok(!ctx.fills.some(({ color }) => /rgba\(246,248,250/.test(color)));
     assert.ok(ctx.strokes.some(({ color }) => color === "#e9a56c"));
+    assert.ok(ctx.strokes.some(({ color, lineWidth }) => color === "#071018" && lineWidth > 2.4));
+    for (const label of ["Thrust · kgf", "Frame 000004 / 5", populated.motor])
+      assert.ok(ctx.outlines.some(({ value, width, shadow }) => value === label && width >= 3 && shadow > 0), label);
+    assert.ok(ctx.texts.every(({ alpha }) => alpha === 1));
     assertUncompressed(ctx.texts);
   }
 });
@@ -768,4 +793,39 @@ test("on-video thrust-only mode uses the complete plot area and retains synchron
   assert.ok(!texts.some(({ value }) => value === populated.motor));
   assert.ok(texts.some(({ value }) => value === "IMPULSE"));
   assertUncompressed(texts);
+});
+
+test("zoomed and repositioned footage is clipped between the technical header and filename footer", () => {
+  for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
+    const style = { ...defaultStyle, layout: "stacked", videoScale: 175, videoX: -35, videoY: 25 };
+    const geometry = compositionGeometry(width, height, 1920, 1080, style);
+    const ctx = recordingContext(width, height);
+    let painted;
+    drawComposition(ctx, width, height, (_ctx, x, y, width, height) => {
+      painted = { x, y, width, height };
+      assert.deepEqual(ctx.clips[0], geometry.videoFrame);
+    }, 1920, 1080, null, [], 0, 0, 1, style, defaultMetadata, source);
+    assert.deepEqual(painted, geometry.video);
+    assert.equal(geometry.videoFrame.y, geometry.header.y + geometry.header.height);
+    assert.ok(Math.abs(geometry.videoFrame.y + geometry.videoFrame.height - geometry.sources.y) < 1e-8);
+    assert.ok(geometry.video.x < geometry.videoFrame.x || geometry.video.y < geometry.videoFrame.y ||
+      geometry.video.x + geometry.video.width > geometry.videoFrame.x + geometry.videoFrame.width ||
+      geometry.video.y + geometry.video.height > geometry.videoFrame.y + geometry.videoFrame.height);
+    for (const text of ctx.texts.filter(({ value }) => value.startsWith("Frame ") || value.startsWith("CSV row ")))
+      assertInside(text, geometry.header);
+  }
+});
+
+test("technical header reports actual variable-frame intervals independently of CSV alignment", () => {
+  const ctx = recordingContext(1920, 1080);
+  const texts = render(ctx, { style: { layout: "stacked", showDetails: false },
+    sourceInfo: { ...source, variable: true }, time: 0.025, offset: -0.375, scale: 4 });
+  const header = compositionGeometry(1920, 1080, 1920, 1080,
+    { ...defaultStyle, layout: "stacked" }).header;
+  for (const value of ["Frame 000003 / 5", "PTS 0.025000 s · Δ 75.000 ms", "CSV 0.100000 s",
+    "1920 × 1080 · 120 fps · VFR", "CSV row 3"]) {
+    const text = texts.find((item) => item.value === value);
+    assert.ok(text, value);
+    assertInside(text, header);
+  }
 });

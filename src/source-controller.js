@@ -5,6 +5,7 @@ import { formatTime } from "./data.js";
 import { demoCSV, createDemo } from "./demo.js";
 import { downloadBlob } from "./files.js";
 import { DEFAULT_CSV_SETTINGS } from "./units.js";
+import { DEFAULT_VIDEO_FRAMING } from "./video-framing.js";
 export function createSourceController(editor) {
   const { state, video } = editor;
   let videoVersion = 0,
@@ -178,6 +179,7 @@ export function createSourceController(editor) {
       if (state.videoURL) URL.revokeObjectURL(state.videoURL);
       state.videoURL = url;
       state.file = file;
+      Object.assign(state.style, DEFAULT_VIDEO_FRAMING);
       state.duration = probe.duration;
       state.start = 0;
       state.end = probe.duration;

@@ -1,4 +1,5 @@
 import { clamp, containRect } from "./data.js";
+import { frameVideo } from "./video-framing.js";
 
 export function presentationScale(width, height) {
   return Math.min(width / (height > width ? 1080 : 1920), height / 900);
@@ -10,25 +11,27 @@ export function telemetryHeight(width, height, style) {
   return clamp((height * style.height) / 100, 270 * scale, height * 0.55);
 }
 
-// The on-video template has one fixed filename strip. Optional data never
-// takes space away from the fitted source image.
+// Fixed source clocks and filenames surround the footage. Optional metadata
+// and telemetry panels never change this reserved video region.
 export function stackedTelemetryGeometry(width, height, style) {
   const scale = presentationScale(width, height);
   const w = width / scale;
   const h = height / scale;
   const footerHeight = 42;
+  const headerHeight = h > w ? 100 : 68;
+  const body = { x: 0, y: headerHeight, width: w, height: h - headerHeight - footerHeight };
   const panelWidth = w < 1400 ? w * 0.52 : Math.min(660, w * 0.34);
   const panel = {
     x: w - panelWidth - 24,
-    y: 24,
+    y: body.y + 24,
     width: panelWidth,
-    height: h - footerHeight - 48,
+    height: body.height - 48,
   };
   const chart = {
     x: panel.x + 76,
-    y: panel.y + 178,
+    y: panel.y + 160,
     width: panel.width - 100,
-    height: panel.height - 254,
+    height: panel.height - 236,
   };
   const gap = 82;
   const plotHeight = style.showPressure ? (chart.height - gap) / 2 : chart.height;
@@ -36,6 +39,8 @@ export function stackedTelemetryGeometry(width, height, style) {
     scale,
     width: w,
     height: h,
+    header: { x: 0, y: 0, width: w, height: headerHeight },
+    body,
     panel,
     panelHeight: panel.height,
     top: panel.y,
@@ -52,7 +57,7 @@ export function stackedTelemetryGeometry(width, height, style) {
     cards: {
       x: 24,
       width: Math.min(580, panel.x - 48),
-      top: 24,
+      top: body.y + 24,
       bottom: h - footerHeight - 24,
     },
   };
@@ -67,17 +72,26 @@ export function compositionGeometry(
 ) {
   const full = style.layout === "full";
   const stacked = style.layout === "stacked";
+  const stackedGeometry = stacked ? stackedTelemetryGeometry(width, height, style) : null;
+  const toPhysical = (rect) => ({
+    x: rect.x * stackedGeometry.scale,
+    y: rect.y * stackedGeometry.scale,
+    width: rect.width * stackedGeometry.scale,
+    height: rect.height * stackedGeometry.scale,
+  });
   const panelHeight = full ? telemetryHeight(width, height, style) : 0;
   const infoWidth = full ? Math.min(width * 0.25, (height - panelHeight) * 0.84) : 0;
-  const videoBox = {
+  const videoBox = stacked ? toPhysical(stackedGeometry.body) : {
     x: 0,
     y: 0,
     width: width - infoWidth,
-    height: height - (stacked ? 42 * presentationScale(width, height) : panelHeight),
+    height: height - panelHeight,
   };
   const stripHeight = (stacked ? 42 : 64) * presentationScale(width, height);
   return {
-    video: containRect(sourceWidth, sourceHeight, videoBox),
+    video: stacked ? frameVideo(sourceWidth, sourceHeight, videoBox, style) : containRect(sourceWidth, sourceHeight, videoBox),
+    videoFrame: videoBox,
+    header: stacked ? toPhysical(stackedGeometry.header) : null,
     info: full
       ? {
           x: width - infoWidth,

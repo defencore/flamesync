@@ -19,7 +19,7 @@ import { chartPoints, compositionSize, validateTimeScale } from "./data.js";
  * offset:number, timeScale:number, start:number, end:number, format:'mp4'|'webm', maxEdge:number, fps:number,
  * quality:import('mediabunny').QualityLevel, keepAudio:boolean,
  * metadata:typeof import('./overlay.js').defaultMetadata,
- * sourceInfo:{width:number,height:number,fps:number,timestamps:Float64Array,end:number,videoName:string,logName:string},
+ * sourceInfo:{width:number,height:number,fps:number,variable?:boolean,timestamps:Float64Array,end:number,videoName:string,logName:string},
  * measurement:{start:number,end:number,visible?:boolean}|null,
  * theory?:{data:import('./data.js').BurnData,reduced:import('./data.js').DataPoint[],name:string,offset:number,timeScale:number}|null}} ExportJob */
 /** @param {MessageEvent<ExportJob>} event */

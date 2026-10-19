@@ -1,0 +1,64 @@
+.framing-settings {
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.framing-settings > summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.framing-settings-body {
+  padding-top: 10px;
+}
+
+.framing-settings-body .range-label {
+  margin-top: 12px;
+}
+
+.framing-drag-button {
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.framing-drag-button[aria-pressed="true"] {
+  border-color: #537fb4;
+  background: #e7effb;
+  color: #245ea6;
+}
+
+.preview-stage[data-video-framing="true"] > canvas {
+  cursor: grab;
+  touch-action: none;
+  outline: 2px solid #5385c1;
+  outline-offset: -2px;
+}
+
+.preview-stage[data-video-framing="true"] > canvas.dragging {
+  cursor: grabbing;
+}
+
+.panel-toolbar > div:first-child {
+  flex: 1;
+}
+
+.panel-toolbar h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 420px) {
+  .framing-drag-button {
+    padding: 5px;
+    font-size: 10px;
+  }
+}

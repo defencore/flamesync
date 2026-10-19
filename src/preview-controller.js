@@ -60,9 +60,11 @@ export function createPreviewController(editor) {
     $("opacity-setting").hidden = state.style.layout === "full";
     $("details-layout-note").hidden = state.style.layout !== "overlay";
     const stacked = state.style.layout === "stacked";
+    $("video-framing").hidden = !stacked;
+    $("video-framing-drag").hidden = !stacked;
     $("theme-setting").hidden = stacked;
     $("height-setting").hidden = stacked;
-    $("overlay-opacity").min = stacked ? "70" : "45";
+    $("overlay-opacity").min = stacked ? "0" : "45";
     $("overlay-opacity").max = stacked ? "95" : "100";
     $("overlay-opacity").value = String(state.style.opacity);
     $("opacity-value").textContent = `${state.style.opacity}%`;

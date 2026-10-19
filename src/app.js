@@ -12,6 +12,7 @@ import { createMeasurementController } from "./measurement-controller.js";
 import { createVideoInfoController } from "./video-info-controller.js";
 import { createUIController } from "./ui-controller.js";
 import { bindAppearanceControls } from "./appearance-controller.js";
+import { createVideoFramingController } from "./video-framing-controller.js";
 import { createExportController } from "./export-controller.js";
 import { bindTooltips } from "./tooltips.js";
 import { initializeLanguage, bindText } from "./i18n.js";
@@ -39,6 +40,7 @@ const editor = {
       refreshFrame = 0;
       const full = fullRefresh;
       fullRefresh = false;
+      editor.framing?.update();
       if ($("video-editor").hidden) return;
       if (full) editor.preview.resize();
       editor.timeline.update();
@@ -65,6 +67,7 @@ try {
   editor.edits = createEditController(editor);
   editor.timeline = createTimelineController(editor);
   editor.player = createPlayerController(editor);
+  editor.framing = createVideoFramingController(editor);
   disposeShortcuts = bindEditorShortcuts(editor);
   editor.sources = createSourceController(editor);
   editor.exports = createExportController(editor);
@@ -83,6 +86,7 @@ try {
   bindTabs($("studio-modes"), (tab) => {
     const analysis = tab.dataset.panel === "profiles";
     if (analysis) editor.video.pause();
+    editor.framing.update();
     for (const id of ["export-settings", "export-button", "help-open"]) $(id).hidden = analysis;
     if (analysis) profiles.activate();
     else editor.refresh();
@@ -102,6 +106,7 @@ window.addEventListener("beforeunload", (event) => {
 window.addEventListener("pagehide", () => {
   cancelAnimationFrame(refreshFrame);
   disposeShortcuts?.();
+  editor.framing?.dispose();
   editor.player?.dispose();
   editor.timeline?.dispose();
   editor.videoInfo?.dispose();

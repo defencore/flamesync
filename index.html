@@ -540,6 +540,21 @@
                 <option value="overlay" data-i18n="Overlay on footage">Overlay on footage</option>
               </select>
             </label>
+            <details id="video-framing" class="framing-settings" hidden>
+              <summary data-i18n="Video position">Video position</summary>
+              <div class="framing-settings-body">
+                <div class="section-heading">
+                  <button id="video-framing-reset" type="button" class="text-button" data-i18n="Reset framing">Reset framing</button>
+                  <button type="button" class="info-button" aria-label="About video framing" data-i18n-aria-label="About video framing" data-help="Use Move video above the preview to drag the image, or adjust its position and scale here. The header, filenames, and data panels stay fixed. Shifting or enlarging the image can move its edges outside the frame. Reset framing restores the complete centered image. Framing never changes trimming, timing, or telemetry values." data-i18n-data-help="Use Move video above the preview to drag the image, or adjust its position and scale here. The header, filenames, and data panels stay fixed. Shifting or enlarging the image can move its edges outside the frame. Reset framing restores the complete centered image. Framing never changes trimming, timing, or telemetry values.">i</button>
+                </div>
+                <label class="field range-label" for="video-scale"><span data-i18n="Video scale">Video scale</span><output id="video-scale-value">100%</output></label>
+                <input id="video-scale" type="range" min="50" max="200" step="1" value="100">
+                <label class="field range-label" for="video-position-x"><span data-i18n="Horizontal position">Horizontal position</span><output id="video-position-x-value">0%</output></label>
+                <input id="video-position-x" type="range" min="-50" max="50" step="0.1" value="0">
+                <label class="field range-label" for="video-position-y"><span data-i18n="Vertical position">Vertical position</span><output id="video-position-y-value">0%</output></label>
+                <input id="video-position-y" type="range" min="-50" max="50" step="0.1" value="0">
+              </div>
+            </details>
             <label class="field">
               <span data-i18n="Chart time range">Chart time range</span>
               <button type="button" class="info-button" aria-label="About chart time range" data-i18n-aria-label="About chart time range" data-help="Burn interval focuses on the measured and theoretical A/B intervals with a small margin, keeping long idle tails from compressing the curve. Entire CSV shows all source samples. This changes only the chart view, never synchronization, trimming, or calculated values." data-i18n-data-help="Burn interval focuses on the measured and theoretical A/B intervals with a small margin, keeping long idle tails from compressing the curve. Entire CSV shows all source samples. This changes only the chart view, never synchronization, trimming, or calculated values.">i</button>
@@ -887,6 +902,7 @@
                   >
                 </div>
                 <div>
+                  <button id="video-framing-drag" class="text-button framing-drag-button" type="button" aria-pressed="false" hidden data-i18n="Move video" title="Drag the video to position it. Arrow keys move it; Shift moves faster. Escape cancels." data-i18n-title="Drag the video to position it. Arrow keys move it; Shift moves faster. Escape cancels.">Move video</button>
                   <span class="preview-tag" id="preview-tag"
                     ><span data-i18n="OVERLAY PREVIEW"
                       >OVERLAY PREVIEW</span
@@ -908,6 +924,7 @@
                   id="preview"
                   width="1280"
                   height="720"
+                  tabindex="0"
                   aria-label="Video with synchronized thrust and pressure overlay"
                   data-i18n-aria-label="Video with synchronized thrust and pressure overlay"
                 ></canvas>

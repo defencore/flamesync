@@ -3,6 +3,7 @@
 @import url("./profiles/styles.css");
 @import url("./profiles/series.css");
 @import url("./theory.css");
+@import url("./video-framing.css");
 
 * {
   box-sizing: border-box;

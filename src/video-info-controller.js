@@ -20,6 +20,7 @@ export function createVideoInfoController(editor) {
         width: state.width,
         height: state.height,
         fps: state.fps,
+        variable: Boolean(state.timing?.variable),
         timestamps: state.frameTimes,
         end: state.timing?.end ?? state.duration,
       };

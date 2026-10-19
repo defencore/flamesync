@@ -4,6 +4,7 @@ import { presentationScale, telemetryHeight, stackedTelemetryGeometry } from "./
 import { overlayTimeDomain } from "./chart-domain.js";
 export { overlayTimeDomain } from "./chart-domain.js";
 import { textLines } from "./canvas-text.js";
+import { DEFAULT_VIDEO_FRAMING } from "./video-framing.js";
 
 export const defaultStyle = {
   title: "STATIC FIRE TEST",
@@ -19,6 +20,7 @@ export const defaultStyle = {
   frameAspect: "landscape",
   showDetails: true,
   summaryMode: "live",
+  ...DEFAULT_VIDEO_FRAMING,
 };
 
 export const defaultMetadata = {
@@ -130,7 +132,16 @@ function text(
   ctx.font = `${weight} ${size}px system-ui, -apple-system, sans-serif`;
   ctx.fillStyle = color;
   ctx.textAlign = align;
-  ctx.fillText(maxWidth === undefined ? content : textLines(ctx, content, maxWidth, 1)[0] || "", x, y);
+  const label = maxWidth === undefined ? content : textLines(ctx, content, maxWidth, 1)[0] || "";
+  if (ctx.shadowBlur > 0) {
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(3,8,12,.9)";
+    ctx.strokeText(label, x, y);
+    ctx.restore();
+  }
+  ctx.fillText(label, x, y);
 }
 
 function sensorAxis(data, theory, key, unit) {
@@ -143,7 +154,7 @@ function sensorAxis(data, theory, key, unit) {
   );
 }
 
-function drawBurnMarkers(ctx, box, startX, endX, light) {
+function drawBurnMarkers(ctx, box, startX, endX, light, contrast) {
   const color = light ? "#285ea8" : "#b2ccf5";
   ctx.save();
   ctx.beginPath();
@@ -158,6 +169,13 @@ function drawBurnMarkers(ctx, box, startX, endX, light) {
     ctx.beginPath();
     ctx.moveTo(position, box.y);
     ctx.lineTo(position, box.y + box.height);
+    if (contrast) {
+      ctx.strokeStyle = "#071018";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+    }
     ctx.stroke();
   }
   ctx.setLineDash([]);
@@ -178,6 +196,7 @@ function drawBurnMarkers(ctx, box, startX, endX, light) {
 
 function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measurement, theory) {
   const { chart, plots } = geometry;
+  const stacked = style.layout === "stacked";
   const light = style.layout !== "stacked" && style.theme === "light";
   const fg = light ? "#24313c" : "#edf3f7";
   const muted = light ? "#5e6c79" : "#a6b5c2";
@@ -221,6 +240,13 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
       ctx.beginPath();
       ctx.moveTo(box.x, gy);
       ctx.lineTo(box.x + box.width, gy);
+      if (stacked) {
+        ctx.strokeStyle = "rgba(3,8,12,.55)";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(219,229,242,.35)";
+        ctx.lineWidth = 1;
+      }
       ctx.stroke();
       text(ctx, data || theory?.data ? axisLabel(tick) : "—", box.x - 10,
         gy + 4, 15, color, 400, "right");
@@ -272,8 +298,7 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
       ctx.clip();
     }
     ctx.globalAlpha = alpha;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = dashed ? 2 : 2.4;
+    const lineWidth = dashed ? 2 : 2.4;
     ctx.lineJoin = "round";
     ctx.setLineDash(dashed ? [6, 3] : []);
     ctx.beginPath();
@@ -283,26 +308,35 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
       if (!i || point.gapBefore) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
     });
+    if (stacked) {
+      ctx.strokeStyle = "#071018";
+      ctx.lineWidth = lineWidth + 3;
+      ctx.stroke();
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
     ctx.stroke();
     ctx.restore();
   };
   for (const key of keys) {
     const box = plots[key];
     if (!data && !theory?.data) {
-      ctx.fillStyle = background;
-      ctx.fillRect(box.x, box.y, box.width, box.height);
+      if (!stacked) {
+        ctx.fillStyle = background;
+        ctx.fillRect(box.x, box.y, box.width, box.height);
+      }
       text(ctx, "Waiting for CSV data", box.x + box.width / 2,
         box.y + box.height / 2 + 6, 16, muted, 500, "center");
     }
     if (data && style.trace === "full")
-      path(key, reduced, { offset: 0, scale: 1 }, colors[key], 0.3, Infinity);
+      path(key, reduced, { offset: 0, scale: 1 }, colors[key], stacked ? 0.65 : 0.3, Infinity);
     if (theory?.data)
       path(key, theory.reduced, { offset: theory.offset, scale: theory.timeScale },
         theoryColor, 0.95, Infinity, true);
     if (data)
       path(key, reduced, { offset: 0, scale: 1 }, colors[key], 1, t);
     if (validMeasurement && measurement.visible !== false)
-      drawBurnMarkers(ctx, box, x(measurement.start, box), x(measurement.end, box), light);
+      drawBurnMarkers(ctx, box, x(measurement.start, box), x(measurement.end, box), light, stacked);
     if (data && t >= domain.start && t <= domain.end) {
       ctx.strokeStyle = fg;
       ctx.lineWidth = 1;
@@ -310,6 +344,13 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
       ctx.beginPath();
       ctx.moveTo(x(t, box), box.y);
       ctx.lineTo(x(t, box), box.y + box.height);
+      if (stacked) {
+        ctx.strokeStyle = "#071018";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.strokeStyle = fg;
+        ctx.lineWidth = 1;
+      }
       ctx.stroke();
       ctx.setLineDash([]);
       if (sample) {
@@ -344,6 +385,10 @@ export function drawOverlay(
   ctx.scale(scale, scale);
   ctx.beginPath();
   const stacked = style.layout === "stacked";
+  if (stacked) {
+    ctx.shadowColor = "rgba(0,0,0,.8)";
+    ctx.shadowBlur = 3;
+  }
   const panel = stacked ? geometry.panel : { x: 0, y: top, width, height: panelHeight };
   ctx.rect(panel.x, panel.y, panel.width, panel.height);
   ctx.clip();
@@ -354,7 +399,7 @@ export function drawOverlay(
   const thrustColor = light ? "#ad4f29" : "#e9a56c";
   const pressureColor = light ? "#177f85" : "#69c9c7";
   const theoryColor = light ? "#87620a" : "#f3d05c";
-  const opacity = (stacked ? clamp(style.opacity, 70, 95) : style.opacity) / 100;
+  const opacity = (stacked ? clamp(style.opacity, 0, 95) : style.opacity) / 100;
   ctx.fillStyle = light
     ? `rgba(246,248,250,${opacity})`
     : stacked ? `rgba(10,18,25,${opacity})` : `rgba(16,24,32,${opacity})`;
@@ -383,20 +428,20 @@ export function drawOverlay(
   if (stacked) {
     const x = panel.x + 22;
     const contentWidth = panel.width - 44;
-    text(ctx, style.title, x, top + 34, 19, fg, 650, "left", contentWidth);
-    text(ctx, status, x, top + 63, 14, muted, 500, "left", contentWidth);
+    text(ctx, style.title, x, top + 31, 19, fg, 650, "left", contentWidth);
+    text(ctx, status, x, top + 57, 14, muted, 500, "left", contentWidth);
     if (visibleMeasurement)
       text(ctx, `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
-        x, top + 98, 18, fg, 600, "left", contentWidth);
+        x, top + 88, 18, fg, 600, "left", contentWidth);
     if (theory?.data) {
-      text(ctx, "Measured", x, top + 132, 15, muted, 500);
-      text(ctx, "Theory", x + 142, top + 132, 15, theoryColor, 600);
+      text(ctx, "Measured", x, top + 116, 15, muted, 500);
+      text(ctx, "Theory", x + 142, top + 116, 15, theoryColor, 600);
       ctx.strokeStyle = theoryColor;
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 3]);
       ctx.beginPath();
-      ctx.moveTo(x + 104, top + 127);
-      ctx.lineTo(x + 130, top + 127);
+      ctx.moveTo(x + 104, top + 111);
+      ctx.lineTo(x + 130, top + 111);
       ctx.stroke();
       ctx.setLineDash([]);
     }

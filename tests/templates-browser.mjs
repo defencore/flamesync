@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Input, BufferSource, ALL_FORMATS } from "mediabunny";
+import { Input, BufferSource, EncodedPacketSink, ALL_FORMATS } from "mediabunny";
 import { compositionGeometry } from "../src/composition-layout.js";
 import { defaultStyle, overlayGeometry } from "../src/overlay.js";
 
@@ -26,21 +26,31 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
   // Canvas instrumentation observes visible labels and video bounds without
   // reading private application state or installing application test hooks.
   await page.addInitScript(() => {
-    window.__templateDrawing = { texts: [], videos: [] };
+    window.__templateDrawing = { texts: [], videos: [], strokes: [] };
     const fillRect = CanvasRenderingContext2D.prototype.fillRect;
     const fillText = CanvasRenderingContext2D.prototype.fillText;
+    const strokeText = CanvasRenderingContext2D.prototype.strokeText;
     const drawImage = CanvasRenderingContext2D.prototype.drawImage;
     CanvasRenderingContext2D.prototype.fillRect = function (x, y, width, height) {
       if (this.canvas.id === "preview" && x === 0 && y === 0 && width === this.canvas.width && height === this.canvas.height)
-        window.__templateDrawing = { texts: [], videos: [] };
+        window.__templateDrawing = { texts: [], videos: [], strokes: [] };
       return fillRect.call(this, x, y, width, height);
     };
     CanvasRenderingContext2D.prototype.fillText = function (text, x, y, ...arguments_) {
       if (this.canvas.id === "preview") {
         const point = new DOMPoint(x, y).matrixTransform(this.getTransform());
-        window.__templateDrawing.texts.push({ text: String(text), x: point.x, y: point.y });
+        window.__templateDrawing.texts.push({ text: String(text), x: point.x, y: point.y,
+          font: this.font, color: this.fillStyle, shadowColor: this.shadowColor, shadowBlur: this.shadowBlur });
       }
       return fillText.call(this, text, x, y, ...arguments_);
+    };
+    CanvasRenderingContext2D.prototype.strokeText = function (text, x, y, ...arguments_) {
+      if (this.canvas.id === "preview") {
+        const point = new DOMPoint(x, y).matrixTransform(this.getTransform());
+        window.__templateDrawing.strokes.push({ text: String(text), x: point.x, y: point.y,
+          color: this.strokeStyle, width: this.lineWidth });
+      }
+      return strokeText.call(this, text, x, y, ...arguments_);
     };
     CanvasRenderingContext2D.prototype.drawImage = function (source, ...arguments_) {
       if (this.canvas.id === "preview" && source instanceof HTMLVideoElement && arguments_.length === 4)
@@ -61,6 +71,13 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
   };
   const select = async (id, value) => {
     const input = page.locator(`#${id}`); await reveal(input); await input.selectOption(value); await frame();
+  };
+  const range = async (id, value) => {
+    const input = page.locator(`#${id}`); await reveal(input);
+    await input.evaluate((element, next) => {
+      element.value = String(next); element.dispatchEvent(new Event("input", { bubbles: true }));
+    }, value);
+    await frame();
   };
   const seek = async (time) => {
     await page.locator("#scrubber").evaluate((input, value) => {
@@ -101,6 +118,8 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
   const overlay = overlayGeometry(1920, 1080, stackedStyle);
   const scaledBox = (box) => Object.fromEntries(Object.entries(box).map(([key, value]) => [key, value * overlay.scale]));
   const thrustBox = scaledBox(overlay.plots.thrust);
+  const mediaModule = await readFile(new URL("../node_modules/mediabunny/dist/bundles/mediabunny.min.mjs", import.meta.url), "utf8");
+  await page.route("**/__qa__/template-media.mjs", (route) => route.fulfill({ contentType: "text/javascript", body: mediaModule }));
 
   try {
     await page.goto(baseURL);
@@ -117,8 +136,9 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
 
     // This intentionally bright source reveals panels that rely on dark footage
     // for contrast. Corner marks also make accidental cropping detectable.
-    const brightVideo = await page.evaluate(async () => {
-      const canvas = document.createElement("canvas"); canvas.width = 960; canvas.height = 540;
+    const brightVideo = Buffer.from(await page.evaluate(async () => {
+      const { Output, BufferTarget, Mp4OutputFormat, CanvasSource } = await import(`${location.origin}/__qa__/template-media.mjs`);
+      const canvas = new OffscreenCanvas(960, 540);
       const context = canvas.getContext("2d");
       const paint = () => {
         context.fillStyle = "#ffffff"; context.fillRect(0, 0, 960, 540);
@@ -126,18 +146,27 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
           context.fillStyle = color; context.fillRect(x, y, 40, 40);
         }
       };
-      paint(); const stream = canvas.captureStream(30), chunks = [];
-      const recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9", videoBitsPerSecond: 1000000 });
-      recorder.ondataavailable = (event) => chunks.push(event.data);
-      const done = new Promise((resolve) => { recorder.onstop = resolve; });
-      const timer = setInterval(paint, 1000 / 30);
-      recorder.start(); await new Promise((resolve) => setTimeout(resolve, 3200)); recorder.stop(); await done;
-      clearInterval(timer); stream.getTracks().forEach((track) => track.stop());
-      const buffer = new Uint8Array(await new Blob(chunks, { type: "video/webm" }).arrayBuffer());
-      let binary = ""; for (const byte of buffer) binary += String.fromCharCode(byte);
-      return btoa(binary);
-    });
-    await page.locator("#video-input").setInputFiles({ name: "bright-field-source.webm", mimeType: "video/webm", buffer: Buffer.from(brightVideo, "base64") });
+      const target = new BufferTarget();
+      const output = new Output({ target, format: new Mp4OutputFormat() });
+      const source = new CanvasSource(canvas, { codec: "avc", bitrate: 1000000 });
+      output.addVideoTrack(source); await output.start();
+      let timestamp = 0;
+      for (let index = 0; index < 96; index++) {
+        paint(); const duration = [1 / 30, 1 / 60, 1 / 24, 1 / 24][index % 4];
+        await source.add(timestamp, duration); timestamp += duration;
+      }
+      source.close(); await output.finalize();
+      return Array.from(new Uint8Array(target.buffer));
+    }));
+    const sourceInput = new Input({ source: new BufferSource(brightVideo), formats: ALL_FORMATS });
+    const sourceTimestamps = [];
+    try {
+      const track = await sourceInput.getPrimaryVideoTrack(); assert.ok(track);
+      for await (const packet of new EncodedPacketSink(track).packets(undefined, undefined, { metadataOnly: true }))
+        sourceTimestamps.push(packet.timestamp);
+      sourceTimestamps.sort((a, b) => a - b);
+    } finally { sourceInput.dispose(); }
+    await page.locator("#video-input").setInputFiles({ name: "bright-field-source.mp4", mimeType: "video/mp4", buffer: brightVideo });
     await page.waitForFunction(() => document.querySelector("#timing-video-detail").textContent.includes("frames checked"), undefined, { timeout: 60000 });
     await page.locator("#csv-input").setInputFiles(profile("measured-long-tail.csv"));
     await page.waitForFunction(() => document.querySelector("#csv-filename").textContent.includes("measured-long-tail.csv"));
@@ -193,23 +222,177 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       await page.locator("#theory-enabled").check(); await frame();
     });
 
-    await caseOf("metadata and frame clocks sit over the footage while only source names stay in the footer", async () => {
+    await caseOf("source frame and log clocks share a top header while metadata stays over footage and names stay below", async () => {
       const { texts } = await drawing();
       const footerTop = geometry.sources.y;
+      const headerBottom = geometry.header.y + geometry.header.height;
       for (const content of ["QA MOTOR 10", "2026-10-20", "SERIES-007", "LOCAL LOGGER", "BRIGHT FIELD CAMERA"])
-        assert.ok(texts.some(({ text, y }) => text.includes(content) && y < footerTop), `${content} should sit over footage`);
-      for (const expression of [/^Frame /, /^CSV row /, /Burn duration.*2\.000/, /^A$/, /^B$/])
-        assert.ok(texts.some(({ text, y }) => expression.test(text) && y < footerTop), `${expression} should be present over footage`);
-      for (const filename of ["bright-field-source.webm", "measured-long-tail.csv"])
+        assert.ok(texts.some(({ text, y }) => text.includes(content) && y > headerBottom && y < footerTop), `${content} should sit over footage`);
+      for (const expression of [/^Frame /, /^CSV row /]) {
+        const labels = texts.filter(({ text }) => expression.test(text));
+        assert.equal(labels.length, 1, `${expression} must be displayed once without duplicate footage labels`);
+        assert.ok(labels[0].y > geometry.header.y && labels[0].y < headerBottom, `${expression} should be in the top header`);
+      }
+      for (const expression of [/Burn duration.*2\.000/, /^A$/, /^B$/])
+        assert.ok(texts.some(({ text, y }) => expression.test(text) && y > headerBottom && y < footerTop), `${expression} should be present over footage`);
+      for (const filename of ["bright-field-source.mp4", "measured-long-tail.csv"])
         assert.ok(texts.some(({ text, y }) => text.includes(filename) && y >= footerTop), `${filename} should remain in the source footer`);
-      assert.ok(!texts.some(({ text, y }) => /^(Frame |CSV row )/.test(text) && y >= footerTop), "Frame and log-row data must leave the filename footer");
+      assert.ok(texts.some(({ text, y }) => /960 × 540.*fps.*VFR/.test(text) && y < headerBottom), "The header should identify source dimensions and variable frame timing");
+      assert.ok(texts.some(({ text, y }) => /50\.0 Hz avg.*ms \/ kgf \/ bar/.test(text) && y < headerBottom), "The header should identify logger cadence and original source units");
       assert.ok(!texts.some(({ text }) => /NaN|undefined|Infinity/.test(text)), "The video must contain valid readable values");
+    });
+
+    await caseOf("header frame numbers, native PTS, unequal frame intervals, and logger rows remain accurate for VFR", async () => {
+      await seek(2);
+      const intervals = [];
+      for (let step = 0; step < 4; step++) {
+        if (step) {
+          const previous = Number(await page.locator("#video-frame-number").textContent());
+          await page.locator("#frame-next").click();
+          await page.waitForFunction((value) => !document.querySelector("#source-video").seeking && Number(document.querySelector("#video-frame-number").textContent) !== value, previous);
+          await frame();
+        }
+        const counter = Number(await page.locator("#video-frame-number").textContent());
+        const expectedPTS = sourceTimestamps[counter - 1];
+        const nextPTS = sourceTimestamps[counter] ?? 3.2;
+        const { texts } = await drawing();
+        const top = texts.filter(({ y }) => y < geometry.header.y + geometry.header.height);
+        assert.ok(top.some(({ text }) => text === `Frame ${String(counter).padStart(6, "0")} / 96`));
+        assert.ok(top.some(({ text }) => text.includes(`PTS ${expectedPTS.toFixed(6)} s`) && text.includes(`Δ ${((nextPTS - expectedPTS) * 1000).toFixed(3)} ms`)),
+          `Top header must use the source packet clock for frame ${counter}: ${JSON.stringify(top)}`);
+        const row = await page.locator("#video-log-row").textContent();
+        assert.ok(top.some(({ text }) => text.startsWith(`CSV row ${row}`)), `Header log lines must match the time-based inspector: ${row}`);
+        assert.ok(top.some(({ text }) => text.startsWith(`CSV ${expectedPTS.toFixed(6)} s`)), "CSV clock must follow native seconds rather than frame or row counts");
+        intervals.push((nextPTS - expectedPTS).toFixed(6));
+      }
+      assert.ok(new Set(intervals).size > 1, "The fixture must exercise unequal source frame intervals");
+      await seek(2);
+    });
+
+    await caseOf("framing sliders and keyboard controls position footage without changing synchronization or analysis", async () => {
+      await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+      assert.equal(await page.locator("#video-framing").isVisible(), true);
+      for (const [id, initial, minimum, maximum] of [["video-scale", "100", "50", "200"], ["video-position-x", "0", "-50", "50"], ["video-position-y", "0", "-50", "50"]]) {
+        const control = page.locator(`#${id}`); await reveal(control);
+        assert.equal(await control.inputValue(), initial);
+        assert.equal(await control.getAttribute("min"), minimum);
+        assert.equal(await control.getAttribute("max"), maximum);
+      }
+      const temporalControls = ["trim-start", "trim-end", "sync-offset", "measure-start", "measure-end", "theory-start", "theory-end", "theory-offset", "theory-scale"];
+      const before = await Promise.all(temporalControls.map((id) => page.locator(`#${id}`).inputValue()));
+      const counter = await page.locator("#video-frame-number").textContent();
+      await range("video-scale", 175); await range("video-position-x", 20); await range("video-position-y", -12);
+      const expected = compositionGeometry(1920, 1080, 960, 540, { ...stackedStyle, videoScale: 175, videoX: 20, videoY: -12 }).video;
+      assert.deepEqual((await drawing()).videos.at(-1), [expected.x, expected.y, expected.width, expected.height]);
+      assert.match(await page.locator("#video-scale-value").textContent(), /175/);
+      assert.match(await page.locator("#video-position-x-value").textContent(), /20/);
+      assert.match(await page.locator("#video-position-y-value").textContent(), /12/);
+      const horizontal = page.locator("#video-position-x"); await horizontal.focus(); await horizontal.press("ArrowRight"); await frame();
+      assert.ok(Number(await horizontal.inputValue()) > 20, "A focused position slider must respond to keyboard arrows");
+      assert.equal(await page.locator("#video-frame-number").textContent(), counter, "Position sliders must not trigger frame stepping");
+      assert.deepEqual(await Promise.all(temporalControls.map((id) => page.locator(`#${id}`).inputValue())), before,
+        "Framing must leave trim, synchronization, measured boundaries, and theoretical source settings intact");
+      await page.locator("#video-framing-reset").click(); await frame();
+      assert.deepEqual(await Promise.all(["video-scale", "video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue())), ["100", "0", "0"]);
+      assert.deepEqual((await drawing()).videos.at(-1), [geometry.video.x, geometry.video.y, geometry.video.width, geometry.video.height]);
+    });
+
+    await caseOf("preview drag supports committing, pointer cancellation, Escape, and reset without covering the source header", async () => {
+      const preview = page.locator("#preview"), button = page.locator("#video-framing-drag");
+      await button.click(); assert.equal(await button.getAttribute("aria-pressed"), "true");
+      const rectangle = await preview.boundingBox(); assert.ok(rectangle);
+      const start = { x: rectangle.x + rectangle.width * 0.42, y: rectangle.y + rectangle.height * 0.55 };
+      await page.mouse.move(start.x, start.y); await page.mouse.down();
+      await page.mouse.move(start.x + rectangle.width * 0.08, start.y - rectangle.height * 0.05, { steps: 4 });
+      await page.mouse.up(); await frame();
+      const committed = await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue()));
+      assert.ok(Number(committed[0]) > 4 && Number(committed[1]) < -2, `Dragging should move the source in both directions: ${committed}`);
+      await page.mouse.move(start.x, start.y); await page.mouse.down();
+      await page.mouse.move(start.x - rectangle.width * 0.06, start.y + rectangle.height * 0.04, { steps: 3 });
+      await preview.dispatchEvent("pointercancel", { pointerId: 1, pointerType: "mouse", bubbles: true });
+      await page.mouse.up(); await frame();
+      assert.deepEqual(await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue())), committed,
+        "Pointer cancellation must restore the gesture's original framing");
+      await page.mouse.move(start.x, start.y); await page.mouse.down();
+      await page.mouse.move(start.x + rectangle.width * 0.06, start.y + rectangle.height * 0.04, { steps: 3 });
+      await page.keyboard.press("Escape"); await page.mouse.up(); await frame();
+      assert.deepEqual(await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue())), committed,
+        "Escape must restore the gesture's initial framing");
+      assert.equal(await button.getAttribute("aria-pressed"), "false");
+      await button.click(); await preview.focus();
+      const counter = await page.locator("#video-frame-number").textContent();
+      await preview.press("ArrowRight"); await preview.press("Shift+ArrowUp"); await frame();
+      assert.equal(Number(await page.locator("#video-position-x").inputValue()), Number(committed[0]) + 1);
+      assert.equal(Number(await page.locator("#video-position-y").inputValue()), Number(committed[1]) - 5);
+      assert.equal(await page.locator("#video-frame-number").textContent(), counter, "Canvas placement keys must not move the video playhead");
+      await preview.press("Escape");
+      await range("video-position-y", -50); await range("video-scale", 200);
+      const { texts } = await drawing();
+      const headerLabels = texts.filter(({ y }) => y < geometry.header.y + geometry.header.height);
+      assert.ok(headerLabels.some(({ text }) => /^Frame /.test(text)) && headerLabels.some(({ text }) => /^CSV row /.test(text)),
+        "Panning beyond the top of the canvas must not overwrite the technical header");
+      const headerPixels = await preview.evaluate((canvas) => Array.from(canvas.getContext("2d").getImageData(1, 1, 1, 1).data));
+      assert.ok(Math.max(...headerPixels.slice(0, 3)) < 80, `The bright source should remain clipped below the opaque header: ${headerPixels}`);
+      await page.locator("#video-framing-reset").click(); await frame();
+    });
+
+    await caseOf("a quick drag during a queued seek commits after decoding and Escape can cancel that pending commit", async () => {
+      const preview = page.locator("#preview"), button = page.locator("#video-framing-drag");
+      for (const cancel of [false, true]) {
+        await button.click();
+        const rectangle = await preview.boundingBox(); assert.ok(rectangle);
+        // A real held pointer lets the browser own pointer capture; all gesture
+        // events then run together while a real source seek remains in flight.
+        await page.mouse.move(rectangle.x + rectangle.width * 0.4, rectangle.y + 2);
+        await page.mouse.down();
+        const seeking = await preview.evaluate((canvas, { rectangle, cancel }) => {
+          const scrubber = document.querySelector("#scrubber");
+          for (const time of [1.234, 2.123]) {
+            scrubber.value = String(time); scrubber.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          const x = rectangle.x + rectangle.width * 0.4, y = rectangle.y + rectangle.height * 0.5;
+          for (const [type, dx, dy] of [["pointerdown", 0, 0], ["pointermove", 0.08, -0.04], ["pointerup", 0.08, -0.04]])
+            canvas.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0,
+              buttons: type === "pointerup" ? 0 : 1, bubbles: true, clientX: x + dx * rectangle.width, clientY: y + dy * rectangle.height }));
+          if (cancel) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          return document.querySelector("#source-video").seeking;
+        }, { rectangle, cancel });
+        await page.mouse.up();
+        assert.equal(seeking, true, "The quick drag must exercise an actual pending source seek");
+        await page.waitForFunction(() => !document.querySelector("#source-video").seeking);
+        await frame();
+        const values = await Promise.all(["video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue()));
+        if (cancel) assert.deepEqual(values, ["0", "0"], "Escape must discard a released gesture before its decode finishes");
+        else {
+          assert.ok(Number(values[0]) > 4 && Number(values[1]) < -2, `A completed quick drag must not be lost while decoding: ${values}`);
+          await button.click(); await page.locator("#video-framing-reset").click(); await frame();
+        }
+      }
+    });
+
+    await caseOf("help dialogs and pinned information keep their Escape behavior while video movement is enabled", async () => {
+      const button = page.locator("#video-framing-drag");
+      await button.click();
+      await page.locator("#help-open").click();
+      assert.equal(await page.locator("#help-dialog").evaluate((dialog) => dialog.open), true);
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !document.querySelector("#help-dialog").open);
+      assert.equal(await button.getAttribute("aria-pressed"), "true", "Closing help must leave the underlying movement mode alone");
+      await page.getByRole("button", { name: "About video framing", exact: true }).click();
+      assert.equal(await page.locator("#info-tooltip").isVisible(), true);
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#info-tooltip").isVisible(), false, "Escape must dismiss the topmost pinned information");
+      assert.equal(await button.getAttribute("aria-pressed"), "true", "Dismissing a tooltip must not also cancel movement mode");
+      await page.locator("#preview").focus(); await page.keyboard.press("Escape");
+      assert.equal(await button.getAttribute("aria-pressed"), "false");
     });
 
     await caseOf("dark translucent charts retain contrast over a bright recording", async () => {
       await page.getByRole("tab", { name: "Appearance", exact: true }).click();
       assert.equal(await page.locator("#opacity-setting").isVisible(), true);
-      await page.locator("#overlay-opacity").evaluate((input) => { input.value = "80"; input.dispatchEvent(new Event("input", { bubbles: true })); }); await frame();
+      assert.equal(await page.locator("#overlay-opacity").getAttribute("min"), "0");
+      assert.equal(await page.locator("#overlay-opacity").getAttribute("max"), "95");
+      await range("overlay-opacity", 80);
       const contrast = await page.locator("#preview").evaluate((canvas, box) => {
         const context = canvas.getContext("2d");
         const data = context.getImageData(Math.round(box.x + 5), Math.round(box.y + 20), 10, 10).data;
@@ -219,11 +402,31 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       }, thrustBox);
       assert.ok(contrast.outside > 240, `The synthetic recording should remain bright: ${JSON.stringify(contrast)}`);
       assert.ok(contrast.brightness > 20 && contrast.brightness < 115, `The panel should darken bright footage without becoming fully opaque: ${JSON.stringify(contrast)}`);
+      await range("overlay-opacity", 0);
+      const transparent = await page.locator("#preview").evaluate((canvas, box) => {
+        const data = canvas.getContext("2d").getImageData(Math.round(box.x + 5), Math.round(box.y + 20), 1, 1).data;
+        const motor = window.__templateDrawing.texts.find(({ text }) => text === "QA MOTOR 10");
+        const fontSize = Number(motor.font.match(/([\d.]+)px/)[1]);
+        const glyphs = canvas.getContext("2d").getImageData(Math.floor(motor.x - 4), Math.floor(motor.y - fontSize - 4), 230, Math.ceil(fontSize + 12)).data;
+        let dark = 0;
+        for (let index = 0; index < glyphs.length; index += 4) if (Math.max(glyphs[index], glyphs[index + 1], glyphs[index + 2]) < 120) dark++;
+        const body = window.__templateDrawing.texts.filter(({ y }) => y > 68 && y < 1038);
+        const protectedText = body.every((label) =>
+          window.__templateDrawing.strokes.some((stroke) => stroke.text === label.text && stroke.x === label.x && stroke.y === label.y && stroke.width >= 2) ||
+          (label.shadowBlur >= 2 && label.shadowColor !== "rgba(0, 0, 0, 0)"));
+        return { brightness: (data[0] + data[1] + data[2]) / 3, dark, protectedText };
+      }, thrustBox);
+      assert.ok(transparent.brightness > 240, `Zero opacity must reveal the bright source instead of clamping the panel to a dark minimum: ${JSON.stringify(transparent)}`);
+      assert.ok(transparent.dark > 150, `The light motor label must retain a contrasting outline on fully transparent white footage: ${JSON.stringify(transparent)}`);
+      assert.equal(transparent.protectedText, true, "Labels and scales over transparent footage must keep an independent contrasting edge or shadow");
+      await writeFile(join(outputDir, "templates-stacked-zero-opacity.png"), Buffer.from((await image()).split(",")[1], "base64"));
+      await range("overlay-opacity", 30);
       await page.screenshot({ path: join(outputDir, "templates-stacked-desktop.png"), fullPage: true });
       await page.locator("#preview").screenshot({ path: join(outputDir, "templates-stacked-composition.png") });
     });
 
-    await caseOf("MP4 preserves the stacked template, theory, burn markers, and default FullHD composition", async () => {
+    await caseOf("MP4 preserves framed footage, top technical header, theory, burn markers, and default FullHD composition", async () => {
+      await range("video-scale", 85); await range("video-position-x", -8); await range("video-position-y", 6);
       await page.locator("#tool-timeline").click(); await change("trim-start", 1.5); await change("trim-end", 2.5);
       await page.getByRole("tab", { name: "Export", exact: true }).click();
       assert.equal(await page.locator("#export-resolution").inputValue(), "1920");
@@ -263,13 +466,51 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
           }
           return count;
         };
-        return { error: error / count, expectedGold: gold(expected.pixels), actualGold: gold(actual), frame: canvas.toDataURL("image/png") };
+        let headerError = 0, headerCount = 0;
+        for (let y = 0; y < 68; y += 2) for (let x = 0; x < canvas.width; x += 4) {
+          const index = (y * canvas.width + x) * 4;
+          for (let channel = 0; channel < 3; channel++) { headerError += Math.abs(actual[index + channel] - expected.pixels[index + channel]); headerCount++; }
+        }
+        // Four source corners and exposed matte make an incorrect framing
+        // transform visible even when the recording's center is plain white.
+        let sourceError = 0, sourceCount = 0;
+        for (let y = 72; y < 1036; y += 8) for (let x = 0; x < 1000; x += 8) {
+          const index = (y * canvas.width + x) * 4;
+          for (let channel = 0; channel < 3; channel++) { sourceError += Math.abs(actual[index + channel] - expected.pixels[index + channel]); sourceCount++; }
+        }
+        return { error: error / count, headerError: headerError / headerCount, sourceError: sourceError / sourceCount,
+          expectedGold: gold(expected.pixels), actualGold: gold(actual), frame: canvas.toDataURL("image/png") };
       }, thrustBox);
       await writeFile(join(outputDir, "templates-stacked-export-frame.png"), Buffer.from(rendered.frame.split(",")[1], "base64"));
       assert.ok(rendered.error < 10, `Stacked export differs from preview by ${rendered.error}`);
+      assert.ok(rendered.headerError < 10, `Exported source header differs from preview by ${rendered.headerError}`);
+      assert.ok(rendered.sourceError < 8, `Exported video framing differs from preview by ${rendered.sourceError}`);
       assert.ok(rendered.expectedGold > 20 && rendered.actualGold > rendered.expectedGold * 0.3,
         `The encoded template must retain its theoretical curve: ${JSON.stringify({ ...rendered, frame: undefined })}`);
       console.log(`PASS: FullHD stacked MP4 parity (mean error ${rendered.error.toFixed(2)}, theory pixels ${rendered.actualGold})`);
+    });
+
+    await caseOf("replacing a source video restores centered framing and discards any old active placement draft", async () => {
+      await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+      await range("video-scale", 160); await range("video-position-x", 25); await range("video-position-y", -10);
+      const button = page.locator("#video-framing-drag"); await button.click();
+      const rectangle = await page.locator("#preview").boundingBox(); assert.ok(rectangle);
+      const x = rectangle.x + rectangle.width * 0.4, y = rectangle.y + rectangle.height * 0.5;
+      await page.mouse.move(x, y); await page.mouse.down();
+      await page.mouse.move(x + rectangle.width * 0.04, y + rectangle.height * 0.02, { steps: 4 });
+      await frame();
+      assert.ok(Number(await page.locator("#video-position-x").inputValue()) > 25, "The old source must have an active changed placement draft");
+      await page.locator("#video-input").setInputFiles({ name: "replacement-bright-source.mp4", mimeType: "video/mp4", buffer: brightVideo });
+      await page.waitForFunction(() => document.querySelector("#video-source-name").textContent === "replacement-bright-source.mp4" &&
+        document.querySelector("#timing-video-detail").textContent.includes("96 frames checked") &&
+        !document.querySelector("#source-video").seeking && document.querySelector("#source-video").readyState >= 2);
+      await page.mouse.up(); await frame();
+      assert.deepEqual(await Promise.all(["video-scale", "video-position-x", "video-position-y"].map((id) => page.locator(`#${id}`).inputValue())), ["100", "0", "0"],
+        "A validated replacement clip must fit completely; canceling the old draft must never restore its placement onto the new file");
+      assert.equal(await page.locator("#preview").evaluate((canvas) => canvas.classList.contains("dragging")), false,
+        "The replaced source must not retain an active pointer draft");
+      if (await button.getAttribute("aria-pressed") === "true") await button.click();
+      assert.deepEqual((await drawing()).videos.at(-1), [geometry.video.x, geometry.video.y, geometry.video.width, geometry.video.height]);
     });
 
     await caseOf("templates remain accessible in Ukrainian and English on mobile without changing output format", async () => {
@@ -277,8 +518,10 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       await page.setViewportSize({ width: 390, height: 844 });
       for (const language of ["uk", "en"]) {
         await select("language-select", language);
-        for (const id of ["presentation-layout", "chart-range"])
+        for (const id of ["presentation-layout", "chart-range", "video-scale", "video-position-x", "video-position-y", "video-framing-drag"]) {
+          await reveal(page.locator(`#${id}`));
           assert.equal(await page.locator(`#${id}`).isVisible(), true, `${id} should remain available in ${language}`);
+        }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
         assert.deepEqual(await page.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]), [1920, 1080]);
         assert.equal(await page.locator("#presentation-layout").inputValue(), "stacked");
@@ -287,6 +530,11 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       await select("language-select", "uk");
       await page.screenshot({ path: join(outputDir, "templates-stacked-mobile.png"), fullPage: true });
       await select("presentation-layout", "full");
+      assert.equal(await page.locator("#video-framing").isVisible(), false);
+      assert.equal(await page.locator("#video-framing-drag").isVisible(), false);
+      const fullGeometry = compositionGeometry(1920, 1080, 960, 540, defaultStyle).video;
+      assert.deepEqual((await drawing()).videos.at(-1), [fullGeometry.x, fullGeometry.y, fullGeometry.width, fullGeometry.height],
+        "The existing full presentation must ignore the stacked template's framing values");
       assert.notDeepEqual((await drawing()).videos.at(-1), [geometry.video.x, geometry.video.y, geometry.video.width, geometry.video.height], "The existing full-frame template must remain available");
     });
   } finally { await page.close(); }
