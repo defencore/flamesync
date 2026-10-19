@@ -531,13 +531,29 @@
                 >Layout and data display settings.</span
               >
             </p>
+            <label class="field">
+              <span data-i18n="Video template">Video template</span>
+              <button type="button" class="info-button" aria-label="About video templates" data-i18n-aria-label="About video templates" data-help="Full frame + data keeps charts outside the footage. Charts on video places two vertical plots and information on translucent dark panels over the full image; filenames stay below it. Bottom overlay keeps the compact strip on the footage. All templates preserve the complete source image." data-i18n-data-help="Full frame + data keeps charts outside the footage. Charts on video places two vertical plots and information on translucent dark panels over the full image; filenames stay below it. Bottom overlay keeps the compact strip on the footage. All templates preserve the complete source image.">i</button>
+              <select id="presentation-layout">
+                <option value="full" data-i18n="Full frame + data">Full frame + data</option>
+                <option value="stacked" data-i18n="Charts on video · stacked">Charts on video · stacked</option>
+                <option value="overlay" data-i18n="Overlay on footage">Overlay on footage</option>
+              </select>
+            </label>
+            <label class="field">
+              <span data-i18n="Chart time range">Chart time range</span>
+              <button type="button" class="info-button" aria-label="About chart time range" data-i18n-aria-label="About chart time range" data-help="Burn interval focuses on the measured and theoretical A/B intervals with a small margin, keeping long idle tails from compressing the curve. Entire CSV shows all source samples. This changes only the chart view, never synchronization, trimming, or calculated values." data-i18n-data-help="Burn interval focuses on the measured and theoretical A/B intervals with a small margin, keeping long idle tails from compressing the curve. Entire CSV shows all source samples. This changes only the chart view, never synchronization, trimming, or calculated values.">i</button>
+              <select id="chart-range">
+                <option value="burn" data-i18n="Burn interval · A/B">Burn interval · A/B</option>
+                <option value="full" data-i18n="Entire CSV">Entire CSV</option>
+              </select>
+            </label>
             <div class="info-box" id="details-layout-note" hidden>
               <svg class="icon"><use href="#i-help" /></svg>
               <p>
                 <span
-                  data-i18n="Switch to “Full frame + data” in Appearance to include this record in your video."
-                  >Switch to “Full frame + data” in Appearance to include this
-                  record in your video.</span
+                  data-i18n="Choose Full frame + data or Charts on video to include the test record."
+                  >Choose Full frame + data or Charts on video to include the test record.</span
                 >
               </p>
             </div>
@@ -591,7 +607,7 @@
               ><input id="show-details" type="checkbox" checked role="switch"
             /></label>
             <label class="field"
-              ><span data-i18n="Side panel values">Side panel values</span
+              ><span data-i18n="Result values">Result values</span
               ><button
                 type="button"
                 class="info-button"
@@ -610,27 +626,6 @@
                 </option>
                 <option value="final" data-i18n="Final results · complete test">
                   Final results · complete test
-                </option>
-              </select></label
-            >
-
-            <label class="field"
-              ><span data-i18n="Presentation layout">Presentation layout</span
-              ><button
-                type="button"
-                class="info-button"
-                data-help="Full frame keeps the entire image visible. Charts and test details sit outside the footage."
-                aria-label="About presentation layout"
-                data-i18n-aria-label="About presentation layout"
-                data-i18n-data-help="Full frame keeps the entire image visible. Charts and test details sit outside the footage."
-              >
-                i</button
-              ><select id="presentation-layout">
-                <option value="full" data-i18n="Full frame + data">
-                  Full frame + data
-                </option>
-                <option value="overlay" data-i18n="Overlay on footage">
-                  Overlay on footage
                 </option>
               </select></label
             >
@@ -662,6 +657,7 @@
                 placeholder="e.g. MOTOR A / TEST 004"
                 data-i18n-placeholder="e.g. MOTOR A / TEST 004"
             /></label>
+            <div id="theme-setting">
             <label class="field"
               ><span data-i18n="Panel theme">Panel theme</span></label
             >
@@ -678,6 +674,8 @@
                 ><span data-i18n="Light">Light</span>
               </button>
             </div>
+            </div>
+            <div id="height-setting">
             <label class="field range-label" for="overlay-height"
               ><span data-i18n="Panel height">Panel height</span>
               <output id="height-value">25%</output></label
@@ -688,16 +686,17 @@
               max="48"
               value="25"
             />
+            </div>
             <div id="opacity-setting" hidden>
               <label class="field range-label" for="overlay-opacity"
                 ><span data-i18n="Panel opacity">Panel opacity</span>
-                <output id="opacity-value">90%</output></label
+                <output id="opacity-value">78%</output></label
               ><input
                 id="overlay-opacity"
                 type="range"
                 min="45"
                 max="100"
-                value="90"
+                value="78"
               />
             </div>
             <label class="field"
@@ -737,12 +736,12 @@
             ><label class="toggle-row"
               ><span
                 ><b
-                  ><span data-i18n="Impulse in bottom panel"
-                    >Impulse in bottom panel</span
+                  ><span data-i18n="Impulse with live values"
+                    >Impulse with live values</span
                   ></b
                 ><small
-                  ><span data-i18n="Optional duplicate of the side total"
-                    >Optional duplicate of the side total</span
+                  ><span data-i18n="Shown beside thrust and pressure"
+                    >Shown beside thrust and pressure</span
                   ></small
                 ></span
               ><input id="show-impulse" type="checkbox" role="switch"
@@ -2103,9 +2102,9 @@
               ><kbd>→</kbd> <span data-i18n="Frame">Frame</span> <kbd>I</kbd
               ><kbd>O</kbd> <span data-i18n="Trim">Trim</span> <kbd>S</kbd>
               <span data-i18n="Sync">Sync</span></span
-            ><button class="text-button" id="go-export">
-              <span data-i18n="Appearance &amp; layout"
-                >Appearance &amp; layout</span
+            ><button class="text-button" id="go-template">
+              <span data-i18n="Video template"
+                >Video template</span
               >
               <svg class="icon"><use href="#i-arrow" /></svg>
             </button>

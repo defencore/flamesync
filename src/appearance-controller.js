@@ -8,6 +8,12 @@ export function bindAppearanceControls(editor) {
   };
   $("presentation-layout").onchange = (event) => {
     state.style.layout = event.target.value;
+    if (state.style.layout === "stacked")
+      state.style.opacity = Math.max(70, Math.min(95, state.style.opacity));
+    editor.refresh();
+  };
+  $("chart-range").onchange = (event) => {
+    state.style.chartRange = event.target.value;
     editor.refresh();
   };
   $("frame-aspect").onchange = (event) => {

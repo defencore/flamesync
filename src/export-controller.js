@@ -129,7 +129,7 @@ export function createExportController(editor) {
         videoName: sourceFile.name,
         logName: state.csvFile?.name ?? "",
       },
-      measurement: editor.measurements.visible(),
+      measurement: editor.measurements.composition(),
       theory,
       offset: state.offset,
       timeScale: state.timeScale,

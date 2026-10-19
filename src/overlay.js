@@ -1,6 +1,8 @@
 import { clamp, sampleAt, dataTimeAt, formatValue } from "./data.js";
 import { displayThrust, displayPressure, DEFAULT_DISPLAY_UNITS } from "./units.js";
-import { presentationScale, telemetryHeight } from "./composition-layout.js";
+import { presentationScale, telemetryHeight, stackedTelemetryGeometry } from "./composition-layout.js";
+import { overlayTimeDomain } from "./chart-domain.js";
+export { overlayTimeDomain } from "./chart-domain.js";
 import { textLines } from "./canvas-text.js";
 
 export const defaultStyle = {
@@ -8,8 +10,9 @@ export const defaultStyle = {
   ...DEFAULT_DISPLAY_UNITS,
   theme: "dark",
   height: 25,
-  opacity: 90,
+  opacity: 78,
   trace: "full",
+  chartRange: "burn",
   showPressure: true,
   showImpulse: false,
   layout: "full",
@@ -38,6 +41,7 @@ export function overlayHeight(w, h, style) {
 // Preview and export share these bounds; the chart and instantaneous values
 // always occupy separate regions regardless of source or metadata density.
 export function overlayGeometry(w, h, style) {
+  if (style.layout === "stacked") return stackedTelemetryGeometry(w, h, style);
   const scale = presentationScale(w, h);
   const width = w / scale;
   const height = h / scale;
@@ -129,24 +133,6 @@ function text(
   ctx.fillText(maxWidth === undefined ? content : textLines(ctx, content, maxWidth, 1)[0] || "", x, y);
 }
 
-// A theoretical trace has its own source clock. Its mapping affects only the
-// comparison drawing, never the measured sample, impulse, or burn duration.
-export function overlayTimeDomain(data, theory = null) {
-  const starts = [];
-  const ends = [];
-  if (data) {
-    starts.push(data.start);
-    ends.push(data.end);
-  }
-  if (theory?.data && Number.isFinite(theory.offset) && theory.timeScale > 0) {
-    starts.push(theory.offset + theory.data.start * theory.timeScale);
-    ends.push(theory.offset + theory.data.end * theory.timeScale);
-  }
-  const start = starts.length ? Math.min(...starts) : 0;
-  const end = ends.length ? Math.max(...ends) : 1;
-  return { start, end, duration: end - start || 1 };
-}
-
 function sensorAxis(data, theory, key, unit) {
   const convert = key === "thrust" ? displayThrust : displayPressure;
   const minimum = key === "thrust" ? "minThrust" : "minPressure";
@@ -190,85 +176,21 @@ function drawBurnMarkers(ctx, box, startX, endX, light) {
   ctx.restore();
 }
 
-export function drawOverlay(
-  ctx,
-  w,
-  h,
-  data,
-  reduced,
-  videoTime,
-  offset,
-  timeScale,
-  style,
-  measurement = null,
-  theory = null,
-) {
-  ctx.save();
-  const geometry = overlayGeometry(w, h, style);
-  const { scale, width, height, panelHeight, top, chart, plots, metrics } = geometry;
-  ctx.scale(scale, scale);
-  ctx.beginPath();
-  ctx.rect(0, top, width, panelHeight);
-  ctx.clip();
-  const light = style.theme === "light";
+function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measurement, theory) {
+  const { chart, plots } = geometry;
+  const light = style.layout !== "stacked" && style.theme === "light";
   const fg = light ? "#24313c" : "#edf3f7";
   const muted = light ? "#5e6c79" : "#a6b5c2";
-  const grid = light ? "rgba(34,50,67,.10)" : "rgba(219,229,242,.11)";
+  const grid = light ? "rgba(34,50,67,.10)" : style.layout === "stacked"
+    ? "rgba(219,229,242,.18)" : "rgba(219,229,242,.11)";
   const thrustColor = light ? "#ad4f29" : "#e9a56c";
   const pressureColor = light ? "#177f85" : "#69c9c7";
   const theoryColor = light ? "#87620a" : "#f3d05c";
   const background = light ? "#f6f8fa" : "#101820";
-  ctx.fillStyle = light
-    ? `rgba(246,248,250,${style.opacity / 100})`
-    : `rgba(16,24,32,${style.opacity / 100})`;
-  ctx.fillRect(0, top, width, panelHeight);
-  ctx.fillStyle = thrustColor;
-  ctx.fillRect(0, top, width, 2);
-  const t = dataTimeAt(videoTime, offset, timeScale);
-  const sample = sampleAt(data, t);
-  const phase = !data
-    ? "AWAITING CSV"
-    : t < data.start
-      ? "AWAITING DATA"
-      : t > data.end
-        ? "TEST COMPLETE"
-        : sample
-          ? "TELEMETRY"
-          : "DATA GAP";
-  const status =
-    Math.abs(timeScale - 1) > 1e-8
-      ? `TIME STRETCH ${Number((timeScale * 100).toFixed(3))}% · ${phase}`
-      : phase;
   const validMeasurement = data && measurement &&
     Number.isFinite(measurement.start) && Number.isFinite(measurement.end) &&
     measurement.end > measurement.start;
-  const statusLimit = width * (validMeasurement ? 0.34 : 0.48);
-  text(ctx, status, width - 26, top + 28, 15, muted, 500, "right", statusLimit);
-  text(
-    ctx,
-    style.title.slice(0, 46),
-    26,
-    top + 28,
-    19,
-    fg,
-    650,
-    "left",
-    width * (validMeasurement ? 0.3 : 0.45) - 26,
-  );
-  if (validMeasurement)
-    text(
-      ctx,
-      `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
-      width * 0.48,
-      top + 28,
-      16,
-      fg,
-      600,
-      "center",
-      width * 0.3,
-    );
-
-  const domain = overlayTimeDomain(data, theory);
+  const domain = overlayTimeDomain(data, theory, measurement, style.chartRange);
   const x = (time, box) => box.x + ((time - domain.start) / domain.duration) * box.width;
   const keys = style.showPressure ? ["thrust", "pressure"] : ["thrust"];
   const convert = (value, key) => key === "thrust"
@@ -304,10 +226,14 @@ export function drawOverlay(
         gy + 4, 15, color, 400, "right");
     }
     text(ctx, `${key === "thrust" ? "Thrust" : "Pressure"} · ${unit}`,
-      box.x, box.y - 10, 16, color, 600);
+      box.x, box.y - (style.layout === "stacked" ? 14 : 10), 16, color, 600,
+      "left", style.layout === "stacked" ? box.width * 0.55 : box.width);
+    if (style.layout === "stacked")
+      text(ctx, `${formatValue(sample ? convert(sample[key], key) : null)} ${unit}`,
+        box.x + box.width, box.y - 14, 24, color, 650, "right", box.width * 0.43);
   }
 
-  if (theory?.data) {
+  if (theory?.data && style.layout !== "stacked") {
     const legendY = plots.thrust.y - 10;
     const right = chart.x + chart.width;
     text(ctx, "Measured", right - 125, legendY, 14, muted, 500, "right");
@@ -321,10 +247,10 @@ export function drawOverlay(
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  const timeAxes = geometry.orientation === "horizontal"
+  const timeAxes = geometry.orientation === "horizontal" || style.layout === "stacked"
     ? [plots.thrust, plots.pressure]
     : [style.showPressure ? plots.pressure : plots.thrust];
-  for (const box of timeAxes) {
+  for (const box of timeAxes.filter(Boolean)) {
     const bottom = box.y + box.height;
     text(ctx, "CSV time", box.x - 12, bottom + 22, 12, muted, 500, "right");
     for (let i = 0; i <= 4; i++)
@@ -375,7 +301,7 @@ export function drawOverlay(
         theoryColor, 0.95, Infinity, true);
     if (data)
       path(key, reduced, { offset: 0, scale: 1 }, colors[key], 1, t);
-    if (validMeasurement)
+    if (validMeasurement && measurement.visible !== false)
       drawBurnMarkers(ctx, box, x(measurement.start, box), x(measurement.end, box), light);
     if (data && t >= domain.start && t <= domain.end) {
       ctx.strokeStyle = fg;
@@ -396,6 +322,123 @@ export function drawOverlay(
         ctx.stroke();
       }
     }
+  }
+}
+
+export function drawOverlay(
+  ctx,
+  w,
+  h,
+  data,
+  reduced,
+  videoTime,
+  offset,
+  timeScale,
+  style,
+  measurement = null,
+  theory = null,
+) {
+  ctx.save();
+  const geometry = overlayGeometry(w, h, style);
+  const { scale, width, height, panelHeight, top, metrics } = geometry;
+  ctx.scale(scale, scale);
+  ctx.beginPath();
+  const stacked = style.layout === "stacked";
+  const panel = stacked ? geometry.panel : { x: 0, y: top, width, height: panelHeight };
+  ctx.rect(panel.x, panel.y, panel.width, panel.height);
+  ctx.clip();
+  const light = !stacked && style.theme === "light";
+  const fg = light ? "#24313c" : "#edf3f7";
+  const muted = light ? "#5e6c79" : "#a6b5c2";
+  const grid = light ? "rgba(34,50,67,.10)" : "rgba(219,229,242,.11)";
+  const thrustColor = light ? "#ad4f29" : "#e9a56c";
+  const pressureColor = light ? "#177f85" : "#69c9c7";
+  const theoryColor = light ? "#87620a" : "#f3d05c";
+  const opacity = (stacked ? clamp(style.opacity, 70, 95) : style.opacity) / 100;
+  ctx.fillStyle = light
+    ? `rgba(246,248,250,${opacity})`
+    : stacked ? `rgba(10,18,25,${opacity})` : `rgba(16,24,32,${opacity})`;
+  ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+  ctx.fillStyle = thrustColor;
+  ctx.fillRect(panel.x, panel.y, panel.width, 2);
+  const t = dataTimeAt(videoTime, offset, timeScale);
+  const sample = sampleAt(data, t);
+  const phase = !data
+    ? "AWAITING CSV"
+    : t < data.start
+      ? "AWAITING DATA"
+      : t > data.end
+        ? "TEST COMPLETE"
+        : sample
+          ? "TELEMETRY"
+          : "DATA GAP";
+  const status =
+    Math.abs(timeScale - 1) > 1e-8
+      ? `TIME STRETCH ${Number((timeScale * 100).toFixed(3))}% · ${phase}`
+      : phase;
+  const validMeasurement = data && measurement &&
+    Number.isFinite(measurement.start) && Number.isFinite(measurement.end) &&
+    measurement.end > measurement.start;
+  const visibleMeasurement = validMeasurement && measurement.visible !== false;
+  if (stacked) {
+    const x = panel.x + 22;
+    const contentWidth = panel.width - 44;
+    text(ctx, style.title, x, top + 34, 19, fg, 650, "left", contentWidth);
+    text(ctx, status, x, top + 63, 14, muted, 500, "left", contentWidth);
+    if (visibleMeasurement)
+      text(ctx, `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
+        x, top + 98, 18, fg, 600, "left", contentWidth);
+    if (theory?.data) {
+      text(ctx, "Measured", x, top + 132, 15, muted, 500);
+      text(ctx, "Theory", x + 142, top + 132, 15, theoryColor, 600);
+      ctx.strokeStyle = theoryColor;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x + 104, top + 127);
+      ctx.lineTo(x + 130, top + 127);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (style.showImpulse) {
+      const impulse = data && (sample || t < data.start || t > data.end)
+        ? displayThrust(t > data.end ? data.impulse : t < data.start ? 0 : sample.impulse, style.thrustUnit)
+        : null;
+      text(ctx, "IMPULSE", x, top + panelHeight - 20, 14, muted, 600);
+      text(ctx, `${formatValue(impulse)} ${style.thrustUnit}·s`, panel.x + panel.width - 22,
+        top + panelHeight - 20, 20, fg, 600, "right", contentWidth * 0.65);
+    }
+  } else {
+    const statusLimit = width * (visibleMeasurement ? 0.34 : 0.48);
+    text(ctx, status, width - 26, top + 28, 15, muted, 500, "right", statusLimit);
+    text(
+      ctx,
+      style.title.slice(0, 46),
+      26,
+      top + 28,
+      19,
+      fg,
+      650,
+      "left",
+      width * (visibleMeasurement ? 0.3 : 0.45) - 26,
+    );
+    if (visibleMeasurement)
+      text(
+        ctx,
+        `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s · CSV`,
+        width * 0.48,
+        top + 28,
+        16,
+        fg,
+        600,
+        "center",
+        width * 0.3,
+      );
+  }
+  drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measurement, theory);
+  if (style.layout === "stacked") {
+    ctx.restore();
+    return;
   }
   const mx = metrics.x;
   ctx.strokeStyle = grid;

@@ -312,6 +312,14 @@ export async function verifyTheory({ browser, baseURL, outputDir }) {
         return { width: canvas.width, height: canvas.height, box: { x, y, width, height },
           pixels: Array.from(context.getImageData(x, y, width, height).data) };
       });
+      await setEnabled(false);
+      const baseline = await page.locator("#preview").evaluate((preview, expected) => {
+        const canvas = document.createElement("canvas"); canvas.width = expected.width; canvas.height = expected.height;
+        const context = canvas.getContext("2d"); context.drawImage(preview, 0, 0, canvas.width, canvas.height);
+        const { x, y, width, height } = expected.box;
+        return Array.from(context.getImageData(x, y, width, height).data);
+      }, expected);
+      await setEnabled(true);
       assert.deepEqual([expected.width, expected.height], [1280, 720]);
       const event = page.waitForEvent("download", { timeout: 60000 });
       await page.locator("#export-button").click();
@@ -334,7 +342,7 @@ export async function verifyTheory({ browser, baseURL, outputDir }) {
         const duration = await input.computeDuration();
         assert.ok(duration >= 1 && duration < 1.1, `Expected a one-second trimmed export, received ${duration}`);
       } finally { input.dispose(); }
-      const rendered = await page.evaluate(async (expected) => {
+      const rendered = await page.evaluate(async ({ expected, baseline }) => {
         const video = document.createElement("video"); video.muted = true; video.preload = "auto";
         video.src = document.querySelector("#download-again").href;
         await new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = reject; });
@@ -346,26 +354,46 @@ export async function verifyTheory({ browser, baseURL, outputDir }) {
         let error = 0, count = 0;
         for (let index = 0; index < actual.length; index += 64)
           for (let channel = 0; channel < 3; channel++) { error += Math.abs(actual[index + channel] - expected.pixels[index + channel]); count++; }
-        const gold = (pixels) => {
-          let found = 0;
-          for (let row = Math.ceil(expected.height * 0.82) - y; row < Math.floor(expected.height * 0.92) - y; row++)
-            for (let column = Math.ceil(expected.width * 0.04); column < expected.width * 0.75; column++) {
-              const index = (row * width + column) * 4;
-              const red = pixels[index], green = pixels[index + 1], blue = pixels[index + 2];
-              if (red > 40 && green > 35 && green / red > 0.72 && blue < green * 0.8) found++;
+        // The on/off difference isolates theoretical curves from measured
+        // traces and labels. Chroma subsampling spreads thin gold lines into
+        // neighboring pixels, so retain their integrated yellow contrast.
+        const spread = new Uint8Array(width * height);
+        let maskPixels = 0, onError = 0, offError = 0;
+        for (let row = Math.ceil(expected.height * 0.82) - y; row < Math.floor(expected.height * 0.92) - y; row++)
+          for (let column = Math.ceil(expected.width * 0.04); column < expected.width * 0.75; column++) {
+            const pixel = row * width + column, index = pixel * 4;
+            if (Math.max(...[0, 1, 2].map((channel) => Math.abs(expected.pixels[index + channel] - baseline[index + channel]))) <= 12) continue;
+            maskPixels++;
+            for (let channel = 0; channel < 3; channel++) {
+              onError += Math.abs(actual[index + channel] - expected.pixels[index + channel]);
+              offError += Math.abs(actual[index + channel] - baseline[index + channel]);
             }
-          return found;
-        };
-        const result = { error: error / count, previewGold: gold(expected.pixels), exportedGold: gold(actual), frame: canvas.toDataURL("image/png") };
+            for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+              const sx = column + dx, sy = row + dy;
+              if (sx >= 0 && sx < width && sy >= 0 && sy < height) spread[sy * width + sx] = 1;
+            }
+          }
+        let previewContrast = 0, exportedContrast = 0;
+        for (let pixel = 0; pixel < spread.length; pixel++) {
+          if (!spread[pixel]) continue;
+          const index = pixel * 4, background = baseline[index + 1] - baseline[index + 2];
+          previewContrast += expected.pixels[index + 1] - expected.pixels[index + 2] - background;
+          exportedContrast += actual[index + 1] - actual[index + 2] - background;
+        }
+        const result = { error: error / count, maskPixels, onError, offError, previewContrast, exportedContrast,
+          frame: canvas.toDataURL("image/png") };
         video.removeAttribute("src"); video.load();
         return result;
-      }, expected);
+      }, { expected, baseline });
       await writeFile(join(outputDir, "theory-export-frame.png"), Buffer.from(rendered.frame.split(",")[1], "base64"));
       assert.ok(rendered.error < 14, `Exported theoretical overlay differs from preview: ${rendered.error}`);
-      assert.ok(rendered.previewGold > 20, `The preview must contain gold theoretical curve pixels: ${rendered.previewGold}`);
-      assert.ok(rendered.exportedGold > Math.max(8, rendered.previewGold * 0.2),
-        `The MP4 must contain theoretical curves, not only measured data: ${rendered.exportedGold}/${rendered.previewGold}`);
-      console.log(`PASS: MP4 theoretical overlay parity (mean error ${rendered.error.toFixed(2)}, gold pixels ${rendered.exportedGold})`);
+      assert.ok(rendered.maskPixels > 20 && rendered.previewContrast > 100,
+        `The preview must contain an identifiable theoretical trace: ${JSON.stringify({ ...rendered, frame: undefined })}`);
+      assert.ok(rendered.exportedContrast > rendered.previewContrast * 0.2,
+        `The MP4 must retain theoretical curve contrast: ${rendered.exportedContrast}/${rendered.previewContrast}`);
+      assert.ok(rendered.onError < rendered.offError * 0.9,
+        `Encoded theoretical curves must match the enabled preview more closely than the disabled reference: ${rendered.onError}/${rendered.offError}`);
+      console.log(`PASS: MP4 theoretical overlay parity (mean error ${rendered.error.toFixed(2)}, retained curve contrast ${(rendered.exportedContrast / rendered.previewContrast * 100).toFixed(1)}%)`);
     });
 
     await caseOf("saving cannot silently omit enabled theory when either source lacks burn anchors", async () => {

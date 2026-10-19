@@ -20,10 +20,10 @@ export function createMeasurementController(editor) {
   const precise = (value) => Number(value.toFixed(6)).toString();
   const complete = () =>
     Boolean(state.measurement?.startSet && state.measurement?.endSet);
-  function visible() {
+  function composition() {
     const m = state.measurement;
-    return state.showMeasurement && complete()
-      ? { start: m.start, end: m.end }
+    return complete()
+      ? { start: m.start, end: m.end, visible: state.showMeasurement }
       : null;
   }
   let plotCache = null;
@@ -309,7 +309,7 @@ export function createMeasurementController(editor) {
   const observer = new ResizeObserver(draw);
   observer.observe(plot);
   return {
-    visible,
+    composition,
     update,
     detect,
     draw,

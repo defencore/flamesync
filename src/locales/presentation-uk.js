@@ -1,0 +1,15 @@
+export const presentationUk = {
+  "Video template": "Шаблон відео",
+  "About video templates": "Про шаблони відео",
+  "Charts on video · stacked": "Графіки на відео · вертикально",
+  "Full frame + data keeps charts outside the footage. Charts on video places two vertical plots and information on translucent dark panels over the full image; filenames stay below it. Bottom overlay keeps the compact strip on the footage. All templates preserve the complete source image.": "«Повний кадр + дані» залишає графіки поза зображенням. «Графіки на відео» розміщує два вертикальні графіки та інформацію на напівпрозорих темних панелях поверх повного кадру; назви файлів залишаються під ним. Накладання знизу зберігає компактну смугу на зображенні. Усі шаблони зберігають повний кадр джерела.",
+  "Chart time range": "Діапазон часу на графіках",
+  "About chart time range": "Про діапазон часу на графіках",
+  "Burn interval · A/B": "Інтервал горіння · A/B",
+  "Entire CSV": "Увесь CSV",
+  "Burn interval focuses on the measured and theoretical A/B intervals with a small margin, keeping long idle tails from compressing the curve. Entire CSV shows all source samples. This changes only the chart view, never synchronization, trimming, or calculated values.": "«Інтервал горіння» показує виміряні та розрахункові межі A/B з невеликим запасом, щоб довгі ділянки без горіння не стискали профіль. «Увесь CSV» показує всі відліки. Змінюється лише вигляд графіків; синхронізація, обрізка й розраховані значення зберігаються.",
+  "Choose Full frame + data or Charts on video to include the test record.": "Виберіть «Повний кадр + дані» або «Графіки на відео», щоб додати дані випробування.",
+  "Result values": "Підсумкові показники",
+  "Impulse with live values": "Імпульс біля поточних значень",
+  "Shown beside thrust and pressure": "Поруч із тягою та тиском",
+};

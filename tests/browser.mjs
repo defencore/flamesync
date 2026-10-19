@@ -4,6 +4,7 @@ import { verifyEditorWorkflow } from "./editor-workflow.mjs";
 import { verifyProfiles } from "./profile-browser.mjs";
 import { verifySeries } from "./series-browser.mjs";
 import { verifyTheory } from "./theory-browser.mjs";
+import { verifyTemplates } from "./templates-browser.mjs";
 import { mkdir, readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1369,6 +1370,9 @@ try {
   const theory = await verifyTheory({ browser, baseURL, outputDir });
   failures.push(...theory.failures);
   requests.push(...theory.requests);
+  const templates = await verifyTemplates({ browser, baseURL, outputDir });
+  failures.push(...templates.failures);
+  requests.push(...templates.requests);
   await verifyDefaultFullHD(fixture);
   await verifyLocalization(fixture);
   await verifyIgnitionAlignment(fixture);

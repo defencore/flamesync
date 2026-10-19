@@ -20,7 +20,7 @@ import { chartPoints, compositionSize, validateTimeScale } from "./data.js";
  * quality:import('mediabunny').QualityLevel, keepAudio:boolean,
  * metadata:typeof import('./overlay.js').defaultMetadata,
  * sourceInfo:{width:number,height:number,fps:number,timestamps:Float64Array,end:number,videoName:string,logName:string},
- * measurement:{start:number,end:number}|null,
+ * measurement:{start:number,end:number,visible?:boolean}|null,
  * theory?:{data:import('./data.js').BurnData,reduced:import('./data.js').DataPoint[],name:string,offset:number,timeScale:number}|null}} ExportJob */
 /** @param {MessageEvent<ExportJob>} event */
 self.onmessage = async ({ data: job }) => {

@@ -68,7 +68,8 @@ export function createUIController(editor) {
     bindText("save-status", status);
     bindText(
       "export-layout",
-      state.style.layout === "full" ? "Full frame + data" : "On footage",
+      state.style.layout === "full" ? "Full frame + data" :
+        state.style.layout === "stacked" ? "Charts on video · stacked" : "On footage",
     );
   }
 
@@ -153,9 +154,9 @@ export function createUIController(editor) {
   $("export-settings").onclick = $("save-settings").onclick =
     openExportSettings;
   $("export-format").addEventListener("change", () => editor.refresh());
-  $("go-export").onclick = () => {
+  $("go-template").onclick = () => {
     inspector.selectValue("overlay");
-    $("tab-overlay").focus();
+    $("presentation-layout").focus();
   };
   $("help-open").onclick = () => $("help-dialog").showModal();
   $("help-close").onclick = () => $("help-dialog").close();

@@ -24,6 +24,7 @@ function recordingContext(width, height) {
     textAlign: "left",
     texts: [],
     strokes: [],
+    fills: [],
     measurements: 0,
     save() {
       transforms.push({ ...transform, font: this.font, align: this.textAlign,
@@ -78,7 +79,11 @@ function recordingContext(width, height) {
     beginPath() { path = []; },
     rect() {},
     clip() {},
-    fillRect() {},
+    fillRect(x, y, width, height) {
+      this.fills.push({ color: this.fillStyle,
+        x: transform.x + x * transform.sx, y: transform.y + y * transform.sy,
+        width: width * transform.sx, height: height * transform.sy });
+    },
     stroke() { this.strokes.push({ points: [...path], color: this.strokeStyle,
       lineWidth: this.lineWidth, alpha: this.globalAlpha, dash: [...dash] }); },
     moveTo(x, y) { path.push({ type: "move", x: transform.x + x * transform.sx,
@@ -648,4 +653,119 @@ test("nonzero source clocks fit both plot edges without covering the CSV time ca
     assert.ok(starts[index].left >= box.x);
     assert.ok(ends[index].right <= box.x + box.width);
   }
+});
+
+test("on-video template keeps uncropped footage fixed and gives both signals tall independent plots", () => {
+  for (const [width, height, sourceWidth, sourceHeight] of [
+    [1920, 1080, 832, 464],
+    [1080, 1920, 1080, 1920],
+    [1080, 1080, 640, 480],
+    [4096, 540, 1920, 1080],
+    [320, 240, 1920, 1080],
+  ]) {
+    const style = { ...defaultStyle, layout: "stacked" };
+    const fixed = compositionGeometry(width, height, sourceWidth, sourceHeight, style);
+    assert.equal(fixed.info, null);
+    assert.equal(fixed.panelHeight, 0);
+    assert.ok(Math.abs(fixed.video.width / fixed.video.height - sourceWidth / sourceHeight) < 1e-10);
+    assert.ok(fixed.video.y + fixed.video.height <= fixed.sources.y + 1e-8);
+    assert.ok(fixed.video.x >= 0 && fixed.video.x + fixed.video.width <= width + 1e-8);
+    const geometry = overlayGeometry(width, height, style);
+    assert.equal(geometry.orientation, "vertical");
+    assert.ok(geometry.plots.thrust.height > 200);
+    assert.ok(geometry.plots.thrust.y + geometry.plots.thrust.height + 70 < geometry.plots.pressure.y);
+    assert.ok(geometry.plots.pressure.y + geometry.plots.pressure.height + 24 < geometry.footer.y);
+    for (const showPressure of [false, true]) {
+      const option = { ...style, showPressure, showDetails: false, showImpulse: true };
+      assert.deepEqual(compositionGeometry(width, height, sourceWidth, sourceHeight, option), fixed);
+      const changed = overlayGeometry(width, height, option);
+      assert.deepEqual(changed.panel, geometry.panel);
+      if (!showPressure) {
+        assert.equal(changed.plots.pressure, null);
+        assert.deepEqual(changed.plots.thrust, changed.chart);
+      }
+    }
+  }
+});
+
+test("on-video metadata and clocks are over the image while all three file identities stay in their footer", () => {
+  const calculated = parseCSV("time_ms;thrust;pressure\n0;0;0\n100;100;20\n200;0;0");
+  const theory = { data: calculated, reduced: chartPoints(calculated), offset: 0,
+    timeScale: 1, name: "calculated-profile.csv" };
+  for (const [width, height] of [[1920, 1080], [1080, 1920], [1080, 1080], [4096, 540]]) {
+    const style = { ...defaultStyle, layout: "stacked", showImpulse: true };
+    const geometry = compositionGeometry(width, height, 1920, 1080, style);
+    const ctx = recordingContext(width, height);
+    const texts = render(ctx, {
+      style,
+      sourceInfo: source,
+      theory,
+      scale: 2,
+      time: 0.2,
+      measurement: { start: 0.05, end: 0.15 },
+    });
+    for (const name of [source.videoName, source.logName, theory.name]) {
+      const text = texts.find(({ value }) => value === name);
+      assert.ok(text, name);
+      assertInside(text, geometry.sources);
+    }
+    const footerLabels = ["VIDEO", "LOG", "THEORY"];
+    for (const label of footerLabels)
+      assertInside(texts.find(({ value }) => value === label), geometry.sources);
+    for (const value of [populated.motor, populated.testDate, "PEAK THRUST", "PEAK PRESSURE",
+      "TOTAL IMPULSE", "Frame 000005 / 5", "CSV row 3", ...recordLabels]) {
+      const text = texts.find((item) => item.value === value);
+      assert.ok(text, value);
+      assert.ok(text.bottom < geometry.sources.y, value);
+    }
+    assert.equal(texts.filter(({ value }) => value === "A").length, 2);
+    assert.equal(texts.filter(({ value }) => value === "B").length, 2);
+    assert.ok(texts.some(({ value }) => value === "Burn duration 0.100 s · CSV"));
+    assert.ok(texts.some(({ value }) => value.includes("TIME STRETCH 200%")));
+    assert.equal(ctx.strokes.filter(({ dash, points }) => dash.join(",") === "6,3" && points.length > 2).length, 2);
+    for (const text of texts) assertInside(text, { x: 0, y: 0, width, height });
+    assertUncompressed(texts);
+  }
+});
+
+test("hiding A/B annotations retains the burn-focused plot domain in every template", () => {
+  for (const layout of ["full", "overlay", "stacked"]) {
+    const measurement = { start: 0.05, end: 0.15 };
+    const shown = recordingContext(1920, 1080);
+    render(shown, { style: { layout }, measurement });
+    const hidden = recordingContext(1920, 1080);
+    render(hidden, { style: { layout }, measurement: { ...measurement, visible: false } });
+    assert.ok(!hidden.texts.some(({ value }) => value === "A" || value === "B" || value.startsWith("Burn duration")));
+    const timeLabels = ({ texts }) => texts.filter(({ value }) => /^-?[\d.]+ s$/.test(value)).map(({ value }) => value);
+    assert.deepEqual(timeLabels(hidden), timeLabels(shown));
+  }
+});
+
+test("on-video panels keep dark translucent backdrops and full-contrast text on bright footage", () => {
+  for (const [opacity, expected] of [[0, 0.7], [78, 0.78], [100, 0.95]]) {
+    const ctx = recordingContext(1920, 1080);
+    const style = { ...defaultStyle, layout: "stacked", theme: "light", opacity };
+    render(ctx, { style, sourceInfo: source });
+    const { panel } = overlayGeometry(1920, 1080, style);
+    const backdrop = ctx.fills.find((box) => box.x === panel.x && box.y === panel.y && box.width === panel.width);
+    assert.equal(backdrop.color, `rgba(10,18,25,${expected})`);
+    assert.ok(!ctx.fills.some(({ color }) => /rgba\(246,248,250/.test(color)));
+    assert.ok(ctx.strokes.some(({ color }) => color === "#e9a56c"));
+    assertUncompressed(ctx.texts);
+  }
+});
+
+test("on-video thrust-only mode uses the complete plot area and retains synchronized source clocks", () => {
+  const ctx = recordingContext(1920, 1080);
+  const style = { layout: "stacked", showPressure: false, showDetails: false, showImpulse: true };
+  const texts = render(ctx, { style, sourceInfo: source, time: 0.1,
+    measurement: { start: 0.05, end: 0.15 } });
+  assert.equal(texts.filter(({ value }) => value === "CSV time").length, 1);
+  assert.equal(texts.filter(({ value }) => value === "A").length, 1);
+  assert.ok(texts.some(({ value }) => value === "Frame 000004 / 5"));
+  assert.ok(texts.some(({ value }) => value === "CSV row 3"));
+  assert.ok(!texts.some(({ value }) => /Pressure|PEAK|TOTAL IMPULSE/.test(value)));
+  assert.ok(!texts.some(({ value }) => value === populated.motor));
+  assert.ok(texts.some(({ value }) => value === "IMPULSE"));
+  assertUncompressed(texts);
 });

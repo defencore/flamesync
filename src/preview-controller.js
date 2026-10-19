@@ -31,7 +31,7 @@ export function createPreviewController(editor) {
         videoName: state.file.name,
         logName: state.csvFile?.name ?? "",
       },
-      editor.measurements.visible(),
+      editor.measurements.composition(),
       editor.theory?.forMeasurement(state.measurement),
     );
   }
@@ -58,7 +58,14 @@ export function createPreviewController(editor) {
     $("empty-state").style.right =
       `${((geometry.info?.width ?? 0) / size.width) * 100}%`;
     $("opacity-setting").hidden = state.style.layout === "full";
-    $("details-layout-note").hidden = state.style.layout === "full";
+    $("details-layout-note").hidden = state.style.layout !== "overlay";
+    const stacked = state.style.layout === "stacked";
+    $("theme-setting").hidden = stacked;
+    $("height-setting").hidden = stacked;
+    $("overlay-opacity").min = stacked ? "70" : "45";
+    $("overlay-opacity").max = stacked ? "95" : "100";
+    $("overlay-opacity").value = String(state.style.opacity);
+    $("opacity-value").textContent = `${state.style.opacity}%`;
   }
 
   return { render, resize: updateComposition };

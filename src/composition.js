@@ -2,6 +2,7 @@ import { drawOverlay, drawEmpty } from "./overlay.js";
 import { compositionGeometry } from "./composition-layout.js";
 import { drawVideoDetails } from "./video-details.js";
 import { drawSourceStrip } from "./source-strip.js";
+import { drawOnVideoDetails, drawOnVideoSources } from "./on-video-details.js";
 
 export { compositionGeometry } from "./composition-layout.js";
 
@@ -11,7 +12,7 @@ export { compositionGeometry } from "./composition-layout.js";
  * @param {number} width @param {number} height
  * @param {{data:import('./data.js').BurnData,reduced:import('./data.js').DataPoint[],name:string,offset:number,timeScale:number}|null} [theory]
  * @param {((ctx:CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, x:number, y:number, width:number, height:number) => void) | null} paintVideo
- * @param {{start:number,end:number}|null} measurement
+ * @param {{start:number,end:number,visible?:boolean}|null} measurement
  */
 export function drawComposition(
   ctx,
@@ -39,7 +40,7 @@ export function drawComposition(
     sourceHeight,
     style,
   );
-  ctx.fillStyle = style.theme === "light" ? "#e4e9ee" : "#0b1218";
+  ctx.fillStyle = style.layout !== "stacked" && style.theme === "light" ? "#e4e9ee" : "#0b1218";
   ctx.fillRect(0, 0, width, height);
   const video = geometry.video;
   ctx.save();
@@ -49,6 +50,11 @@ export function drawComposition(
   if (paintVideo) paintVideo(ctx, video.x, video.y, video.width, video.height);
   else drawEmpty(ctx, width, height);
   ctx.restore();
+  if (style.layout === "stacked")
+    drawOnVideoDetails(
+      ctx, width, height, metadata, sourceInfo, data,
+      videoTime, offset, timeScale, style,
+    );
   if (geometry.info && style.showDetails)
     drawVideoDetails(
       ctx,
@@ -73,16 +79,19 @@ export function drawComposition(
     measurement,
     theory,
   );
-  drawSourceStrip(
-    ctx,
-    width,
-    height,
-    sourceInfo,
-    data,
-    videoTime,
-    offset,
-    timeScale,
-    style,
-  );
+  if (style.layout === "stacked")
+    drawOnVideoSources(ctx, width, height, sourceInfo, theory, style);
+  else
+    drawSourceStrip(
+      ctx,
+      width,
+      height,
+      sourceInfo,
+      data,
+      videoTime,
+      offset,
+      timeScale,
+      style,
+    );
   ctx.restore();
 }
