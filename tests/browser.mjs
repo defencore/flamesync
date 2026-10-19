@@ -194,6 +194,8 @@ async function verifyDefaultFullHD(fixture) {
     );
     assert.equal(await editor.locator("#frame-aspect").inputValue(), "landscape");
     assert.equal(await editor.locator("#export-resolution").inputValue(), "1920");
+    assert.equal(await editor.locator("#export-format").inputValue(), "mp4");
+    assert.equal(await editor.locator("#export-quality").inputValue(), "very-high");
     assert.deepEqual(
       await editor.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]),
       [1920, 1080],
@@ -203,7 +205,9 @@ async function verifyDefaultFullHD(fixture) {
     const downloadEvent = editor.waitForEvent("download", { timeout: 60000 });
     await click("save-video", editor);
     const path = join(outputDir, "default-fullhd.mp4");
-    await (await downloadEvent).saveAs(path);
+    const download = await downloadEvent;
+    assert.match(download.suggestedFilename(), /\.mp4$/);
+    await download.saveAs(path);
     await editor.waitForFunction(() => !document.querySelector("#export-dialog").open);
     const input = new Input({
       source: new BufferSource(new Uint8Array(await readFile(path))),
@@ -212,6 +216,7 @@ async function verifyDefaultFullHD(fixture) {
     try {
       const track = await input.getPrimaryVideoTrack();
       assert.ok(track);
+      assert.equal(await track.getCodec(), "avc", "Default MP4 export must contain H.264 video");
       assert.equal(await track.getDisplayWidth(), 1920);
       assert.equal(await track.getDisplayHeight(), 1080);
       const duration = await input.computeDuration();
@@ -219,7 +224,7 @@ async function verifyDefaultFullHD(fixture) {
     } finally {
       input.dispose();
     }
-    console.log("PASS: default export from a smaller source is actual 1920 × 1080, 16:9");
+    console.log("PASS: default export uses Very high quality H.264 MP4 at actual 1920 × 1080, 16:9");
   } finally {
     await editor.close();
   }

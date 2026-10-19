@@ -133,6 +133,8 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       for (const value of ["full", "stacked", "overlay"])
         assert.equal(await page.locator(`#presentation-layout option[value="${value}"]`).count(), 1);
       assert.equal(await page.locator("#export-resolution").inputValue(), "1920");
+      assert.equal(await page.locator("#export-format").inputValue(), "mp4");
+      assert.equal(await page.locator("#export-quality").inputValue(), "very-high");
       assert.deepEqual(await page.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]), [1920, 1080]);
     });
 
@@ -453,18 +455,22 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       await page.locator("#tool-timeline").click(); await change("trim-start", 1.5); await change("trim-end", 2.5);
       await page.getByRole("tab", { name: "Export", exact: true }).click();
       assert.equal(await page.locator("#export-resolution").inputValue(), "1920");
-      await select("export-format", "mp4"); await select("export-fps", "24"); await page.locator("#keep-audio").uncheck();
+      assert.equal(await page.locator("#export-format").inputValue(), "mp4");
+      assert.equal(await page.locator("#export-quality").inputValue(), "very-high");
+      await select("export-fps", "24"); await page.locator("#keep-audio").uncheck();
       await seek(2);
       await page.locator("#preview").evaluate((canvas) => {
         window.__templateExpected = { width: canvas.width, height: canvas.height,
           pixels: canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data };
       });
       const event = page.waitForEvent("download", { timeout: 90000 }); await page.locator("#export-button").click();
-      const download = await event; const path = join(outputDir, "templates-stacked.mp4"); await download.saveAs(path);
+      const download = await event; assert.match(download.suggestedFilename(), /\.mp4$/);
+      const path = join(outputDir, "templates-stacked.mp4"); await download.saveAs(path);
       await page.waitForFunction(() => !document.querySelector("#export-dialog").open);
       const input = new Input({ source: new BufferSource(await readFile(path)), formats: ALL_FORMATS });
       try {
         const track = await input.getPrimaryVideoTrack(); assert.ok(track);
+        assert.equal(await track.getCodec(), "avc", "Default MP4 export must contain H.264 video");
         assert.equal(await track.getDisplayWidth(), 1920); assert.equal(await track.getDisplayHeight(), 1080);
         assert.equal(await input.getPrimaryAudioTrack(), null);
         const duration = await input.computeDuration(); assert.ok(duration >= 1 && duration < 1.1);
