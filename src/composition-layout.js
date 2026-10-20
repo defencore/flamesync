@@ -29,11 +29,11 @@ export function stackedTelemetryGeometry(width, height, style) {
   };
   const chart = {
     x: panel.x + 76,
-    y: panel.y + 160,
+    y: panel.y + 184,
     width: panel.width - 100,
-    height: panel.height - 236,
+    height: panel.height - 228,
   };
-  const gap = 82;
+  const gap = 64;
   const plotHeight = style.showPressure ? (chart.height - gap) / 2 : chart.height;
   return {
     scale,
@@ -56,7 +56,7 @@ export function stackedTelemetryGeometry(width, height, style) {
     metrics: null,
     cards: {
       x: 24,
-      width: Math.min(580, panel.x - 48),
+      width: Math.min(392, panel.x - 48),
       top: body.y + 24,
       bottom: h - footerHeight - 24,
     },

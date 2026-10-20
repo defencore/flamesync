@@ -238,7 +238,15 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
     await change("measure-start", 1); await change("measure-end", 3);
     await page.getByRole("tab", { name: "Project", exact: true }).click();
     await change("meta-motor", "QA MOTOR 10"); await change("meta-testDate", "2026-10-20");
-    await change("meta-testId", "SERIES-007"); await change("meta-logger", "LOCAL LOGGER"); await change("meta-camera", "BRIGHT FIELD CAMERA");
+    const detailedMetadata = {
+      "meta-testId": "SERIES-007 / acceptance test 03",
+      "meta-location": "East range / calibrated static-fire bench 02",
+      "meta-logger": "LOCAL LOGGER / load cell and pressure transducer",
+      "meta-sampleRate": "50 Hz / independent microsecond timestamps",
+      "meta-camera": "BRIGHT FIELD CAMERA / native variable-rate recording",
+      "meta-notes": "Load cell calibrated before the test. Pressure transducer zeroed; ignition commanded remotely.",
+    };
+    for (const [id, value] of Object.entries(detailedMetadata)) await change(id, value);
     await page.getByRole("tab", { name: "Appearance", exact: true }).click();
     await select("presentation-layout", "stacked"); await seek(2);
 
@@ -284,6 +292,94 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       await page.locator("#theory-enabled").uncheck(); await frame();
       assert.notEqual(await image(), on, "The theoretical reference must be visible in the new template");
       await page.locator("#theory-enabled").check(); await frame();
+    });
+
+    await caseOf("stacked live totals follow the playhead while final results and wrapped metadata stay compact and independent", async () => {
+      const cardRight = (overlay.cards.x + overlay.cards.width) * overlay.scale;
+      const panelLeft = overlay.panel.x * overlay.scale;
+      const split = async () => {
+        const { texts } = await drawing();
+        const body = texts.filter(({ y }) => y > geometry.header.height && y < geometry.sources.y);
+        return { all: texts, left: body.filter(({ x }) => x < cardRight + 1), right: body.filter(({ x }) => x >= panelLeft) };
+      };
+      const valueBelow = (labels, content) => {
+        const label = labels.find(({ text }) => text === content); assert.ok(label, `${content} must be visible`);
+        const value = labels.filter(({ x, y }) => Math.abs(x - label.x) < 1 && y > label.y && y < label.y + 35)
+          .sort((a, b) => a.y - b.y)[0];
+        assert.ok(value, `${content} must have a readable value below its label`); return value.text;
+      };
+      const finalValues = ({ right }) => Object.fromEntries(["PEAK THRUST", "PEAK PRESSURE", "TOTAL IMPULSE"].map((label) => [label, valueBelow(right, label)]));
+      const saveComposition = async (name) => writeFile(join(outputDir, name), Buffer.from((await image()).split(",")[1], "base64"));
+      await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+      assert.equal(await page.locator("#summary-setting").isVisible(), false, "Stacked results already show live and final information together");
+      assert.equal(await page.locator("#impulse-setting").isVisible(), false, "Visible details already include both live and total impulse");
+      assert.ok(overlay.cards.width <= 392 && cardRight < panelLeft - 100, "Narrow metadata cards must leave the engine region open");
+      await range("overlay-opacity", 78); await seek(1.5);
+      const first = await split(), final = finalValues(first);
+      assert.deepEqual(final, { "PEAK THRUST": "10.0 kgf", "PEAK PRESSURE": "2.0 bar", "TOTAL IMPULSE": "20.2 kgf·s" });
+      assert.equal(valueBelow(first.left, "IMPULSE SO FAR"), "5.1 kgf·s");
+      await saveComposition("overlay-fhd-live-1500ms-opacity78.png");
+      await seek(2.5); const later = await split();
+      // A VFR seek presents the source packet at or before the requested time.
+      // Integrate the known plateau at that actual frame clock, not the request.
+      const nativeTime = sourceTimestamps[Number(await page.locator("#video-frame-number").textContent()) - 1];
+      const liveImpulse = `${(.1 + (nativeTime - 1) * 10).toFixed(1)} kgf·s`;
+      assert.equal(valueBelow(later.left, "IMPULSE SO FAR"), liveImpulse, "Only accumulated impulse should grow with the source frame clock");
+      assert.deepEqual(finalValues(later), final, "Full-log final results must remain static while the video plays");
+      for (const [label, region] of [["LIVE TOTALS", "left"], ["IMPULSE SO FAR", "left"], ["FINAL RESULTS", "right"], ["TOTAL IMPULSE", "right"]]) {
+        assert.equal(later.all.filter(({ text }) => text === label).length, 1, `${label} must not be duplicated`);
+        assert.ok(later[region].some(({ text }) => text === label), `${label} must be in its intended region`);
+      }
+      assert.ok(!later.all.some(({ text }) => text === "IMPULSE" || text === "METADATA"), "Ambiguous impulse and redundant metadata headings must not return");
+      const metadata = later.left.filter(({ y }) => y < later.left.find(({ text }) => text === "LIVE TOTALS").y - 18);
+      const recordText = metadata.map(({ text }) => text).join(" ").replace(/\s+/g, " ");
+      for (const value of Object.values(detailedMetadata)) assert.ok(recordText.includes(value), `Full metadata should wrap rather than lose information: ${value}`);
+      assert.ok(!metadata.some(({ text }) => text.includes("…")), "Ordinary full test metadata must fit without truncation");
+      for (const label of later.left) {
+        const left = label.x - (label.align === "right" ? label.width : label.align === "center" ? label.width / 2 : 0);
+        assert.ok(left >= overlay.cards.x * overlay.scale + 16 && left + label.width <= cardRight - 16,
+          `The left card label must stay within its compact bounds: ${label.text}`);
+      }
+      const videoBounds = (await drawing()).videos.at(-1);
+      await select("presentation-layout", "full");
+      assert.equal(await page.locator("#summary-setting").isVisible(), true, "Full presentation should retain its live/final selector");
+      assert.equal(await page.locator("#impulse-setting").isVisible(), true, "Full presentation should retain its optional impulse control");
+      await select("summary-mode", "final"); await select("presentation-layout", "stacked");
+      assert.equal(valueBelow((await split()).left, "IMPULSE SO FAR"), liveImpulse, "A saved final-only preference must never turn stacked live totals into final totals");
+      await page.locator("#tool-timeline").click(); await change("sync-offset", 1); await seek(.5);
+      let observed = await split(); assert.ok(observed.left.some(({ text }) => text === "WAITING"));
+      assert.equal(valueBelow(observed.left, "IMPULSE SO FAR"), "0.0 kgf·s"); assert.deepEqual(finalValues(observed), final);
+      await change("sync-offset", -30); await seek(.5); observed = await split();
+      assert.ok(observed.left.some(({ text }) => text === "COMPLETE"));
+      assert.equal(valueBelow(observed.left, "IMPULSE SO FAR"), "20.2 kgf·s"); assert.deepEqual(finalValues(observed), final);
+      await change("sync-offset", 0); await seek(2.5);
+      await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+      await page.locator("#show-details").uncheck(); await frame();
+      observed = await split();
+      assert.equal(observed.left.length, 0, "Hiding details should remove metadata and live cards together");
+      assert.ok(!observed.all.some(({ text }) => ["FINAL RESULTS", "TOTAL IMPULSE", "IMPULSE SO FAR"].includes(text)));
+      assert.equal(await page.locator("#impulse-setting").isVisible(), true);
+      await page.locator("#show-impulse").check(); await frame(); observed = await split();
+      assert.equal(observed.all.filter(({ text }) => text === "IMPULSE SO FAR").length, 1);
+      assert.equal(valueBelow(observed.right, "IMPULSE SO FAR"), liveImpulse, "The optional standalone impulse must remain cumulative");
+      await page.locator("#show-details").check(); await frame(); observed = await split();
+      assert.equal(await page.locator("#show-impulse").isChecked(), true);
+      assert.equal(await page.locator("#impulse-setting").isVisible(), false);
+      assert.equal(observed.all.filter(({ text }) => text === "IMPULSE SO FAR").length, 1, "A saved standalone impulse preference must not duplicate the visible live card");
+      assert.equal(valueBelow(observed.left, "IMPULSE SO FAR"), liveImpulse);
+      assert.ok(!observed.right.some(({ text }) => text === "IMPULSE SO FAR"));
+      assert.equal(observed.all.filter(({ text }) => text === "TOTAL IMPULSE").length, 1);
+      await page.locator("#show-details").uncheck(); await frame();
+      await page.locator("#show-impulse").uncheck(); await page.locator("#show-details").check(); await frame();
+      await page.locator("#show-pressure").uncheck(); await frame(); observed = await split();
+      assert.ok(!observed.all.some(({ text }) => text === "PEAK PRESSURE"));
+      assert.equal(valueBelow(observed.right, "TOTAL IMPULSE"), final["TOTAL IMPULSE"]);
+      assert.deepEqual((await drawing()).videos.at(-1), videoBounds, "Optional results must not move or shrink the source video");
+      await saveComposition("overlay-fhd-live-2500ms-no-pressure.png");
+      await page.locator("#show-pressure").check(); await frame();
+      await select("presentation-layout", "full"); await select("summary-mode", "live"); await select("presentation-layout", "stacked");
+      await seek(2); await saveComposition("overlay-fhd-metadata-theory-opacity78.png");
+      console.log(`PROOF: ${join(outputDir, "overlay-fhd-metadata-theory-opacity78.png")}`);
     });
 
     await caseOf("source frame and log clocks share a top header while metadata stays over footage and names stay below", async () => {
@@ -706,17 +802,20 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
 
     await caseOf("templates remain accessible in Ukrainian and English on mobile without changing output format", async () => {
       await page.getByRole("tab", { name: "Appearance", exact: true }).click();
-      await page.setViewportSize({ width: 390, height: 844 });
-      for (const language of ["uk", "en"]) {
-        await select("language-select", language);
-        for (const id of ["presentation-layout", "chart-range", "video-scale", "video-position-x", "video-position-y", "video-framing-drag"]) {
-          await reveal(page.locator(`#${id}`));
-          assert.equal(await page.locator(`#${id}`).isVisible(), true, `${id} should remain available in ${language}`);
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        for (const language of ["uk", "en"]) {
+          await select("language-select", language);
+          for (const id of ["presentation-layout", "chart-range", "video-scale", "video-position-x", "video-position-y", "video-framing-drag"]) {
+            await reveal(page.locator(`#${id}`));
+            assert.equal(await page.locator(`#${id}`).isVisible(), true, `${id} should remain available in ${language} at ${width}px`);
+          }
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+          assert.deepEqual(await page.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]), [1920, 1080]);
+          assert.equal(await page.locator("#presentation-layout").inputValue(), "stacked");
+          assert.equal(await page.locator("#chart-range").inputValue(), "burn");
         }
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
-        assert.deepEqual(await page.locator("#preview").evaluate((canvas) => [canvas.width, canvas.height]), [1920, 1080]);
-        assert.equal(await page.locator("#presentation-layout").inputValue(), "stacked");
-        assert.equal(await page.locator("#chart-range").inputValue(), "burn");
+        await page.screenshot({ path: join(outputDir, `templates-stacked-mobile-${width}.png`), fullPage: true });
       }
       await select("language-select", "uk");
       await page.screenshot({ path: join(outputDir, "templates-stacked-mobile.png"), fullPage: true });
@@ -725,6 +824,8 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       await select("presentation-layout", "full");
       assert.equal(await page.locator("#video-framing").isVisible(), false);
       assert.equal(await page.locator("#video-framing-drag").isVisible(), false);
+      assert.equal(await page.locator("#summary-setting").isVisible(), true);
+      assert.equal(await page.locator("#impulse-setting").isVisible(), true);
       assert.equal(await page.locator("#video-framing-guides").isVisible(), false, "The grid belongs only to movement in the on-video template");
       const fullGeometry = compositionGeometry(1920, 1080, 960, 540, defaultStyle).video;
       assert.deepEqual((await drawing()).videos.at(-1), [fullGeometry.x, fullGeometry.y, fullGeometry.width, fullGeometry.height],

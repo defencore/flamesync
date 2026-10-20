@@ -687,7 +687,7 @@ test("on-video template keeps uncropped footage fixed and gives both signals tal
     const geometry = overlayGeometry(width, height, style);
     assert.equal(geometry.orientation, "vertical");
     assert.ok(geometry.plots.thrust.height > 200);
-    assert.ok(geometry.plots.thrust.y + geometry.plots.thrust.height + 70 < geometry.plots.pressure.y);
+    assert.equal(geometry.plots.pressure.y - geometry.plots.thrust.y - geometry.plots.thrust.height, 64);
     assert.ok(geometry.plots.pressure.y + geometry.plots.pressure.height + 24 < geometry.footer.y);
     for (const showPressure of [false, true]) {
       const option = { ...style, showPressure, showDetails: false, showImpulse: true };
@@ -726,7 +726,13 @@ test("on-video source clocks occupy the top header while metadata and all filena
     const footerLabels = ["VIDEO", "LOG", "THEORY"];
     for (const label of footerLabels)
       assertInside(texts.find(({ value }) => value === label), geometry.sources);
-    for (const value of [populated.motor, populated.testDate, "PEAK THRUST", "PEAK PRESSURE",
+    const model = texts.filter((text) => Math.abs(text.size / presentationScale(width, height) - 29) < 1e-8);
+    assert.equal(model.map(({ value }) => value).join(" "), populated.motor);
+    for (const text of model) {
+      assert.ok(text.bottom < geometry.sources.y, text.value);
+      assert.ok(text.top >= geometry.videoFrame.y, text.value);
+    }
+    for (const value of [populated.testDate, "PEAK THRUST", "PEAK PRESSURE",
       "TOTAL IMPULSE", ...recordLabels]) {
       const text = texts.find((item) => item.value === value);
       assert.ok(text, value);
@@ -782,7 +788,9 @@ test("on-video panels keep dark translucent backdrops and full-contrast text on 
     assert.ok(!ctx.fills.some(({ color }) => /rgba\(246,248,250/.test(color)));
     assert.ok(ctx.strokes.some(({ color }) => color === "#e9a56c"));
     assert.ok(ctx.strokes.some(({ color, lineWidth }) => color === "#071018" && lineWidth > 2.4));
-    for (const label of ["Thrust · kgf", "Frame 000004 / 5 · 0.100000 s", populated.motor])
+    const model = ctx.texts.filter(({ size }) => size === 29);
+    assert.equal(model.map(({ value }) => value).join(" "), populated.motor);
+    for (const label of ["Thrust · kgf", "Frame 000004 / 5 · 0.100000 s", ...model.map(({ value }) => value)])
       assert.ok(ctx.outlines.some(({ value, width, shadow }) => value === label && width >= 3 && shadow > 0), label);
     assert.ok(ctx.texts.every(({ alpha }) => alpha === 1));
     assert.ok(!ctx.texts.some(({ value }) => value === "TELEMETRY"));
@@ -802,7 +810,7 @@ test("on-video thrust-only mode uses the complete plot area and retains synchron
   assert.ok(texts.some(({ value }) => value === "Log row 3 · 0.100000 s"));
   assert.ok(!texts.some(({ value }) => /Pressure|PEAK|TOTAL IMPULSE/.test(value)));
   assert.ok(!texts.some(({ value }) => value === populated.motor));
-  assert.ok(texts.some(({ value }) => value === "IMPULSE"));
+  assert.ok(texts.some(({ value }) => value === "IMPULSE SO FAR"));
   assertUncompressed(texts);
 });
 
@@ -838,5 +846,211 @@ test("compact header preserves native frame timestamps independently of log alig
     const text = texts.find((item) => item.value === value);
     assert.ok(text, value);
     assertInside(text, header);
+  }
+});
+
+function physicalRect(box, scale) {
+  return { x: box.x * scale, y: box.y * scale,
+    width: box.width * scale, height: box.height * scale };
+}
+
+function textsInRect(texts, box) {
+  return texts.filter((text) => text.left >= box.x - 1e-8 &&
+    text.right <= box.x + box.width + 1e-8 && inBox(text, box));
+}
+
+function stackedRegions(width, height, style = {}) {
+  const geometry = overlayGeometry(width, height, { ...defaultStyle, layout: "stacked", ...style });
+  return {
+    geometry,
+    left: physicalRect({ x: geometry.cards.x, y: geometry.cards.top,
+      width: geometry.cards.width, height: geometry.cards.bottom - geometry.cards.top }, geometry.scale),
+    panel: physicalRect(geometry.panel, geometry.scale),
+    plots: Object.fromEntries(Object.entries(geometry.plots)
+      .filter(([, box]) => box).map(([key, box]) => [key, physicalRect(box, geometry.scale)])),
+  };
+}
+
+function followingValue(texts, label) {
+  const index = texts.findIndex(({ value }) => value === label);
+  assert.ok(index >= 0, `Missing metric label: ${label}`);
+  assert.ok(index + 1 < texts.length, `Missing value for ${label}`);
+  return texts[index + 1].value;
+}
+
+function assertNoTextOverlap(texts, message) {
+  for (let first = 0; first < texts.length; first++) {
+    for (let second = first + 1; second < texts.length; second++) {
+      const a = texts[first], b = texts[second];
+      const horizontal = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const vertical = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      assert.ok(horizontal <= 1e-8 || vertical <= 1e-8,
+        `${message}: ${JSON.stringify(a.value)} overlaps ${JSON.stringify(b.value)}`);
+    }
+  }
+}
+
+test("stacked totals remain live while complete-log results occupy the graph header without an impulse footer", () => {
+  const { left, panel, plots } = stackedRegions(1920, 1080);
+  for (const summaryMode of ["live", "final"]) {
+    const expected = [
+      { time: 0.1, thrust: "10.0 N", pressure: "2.0 bar", impulse: "0.5 N·s" },
+      { time: 0.2, thrust: "100.0 N", pressure: "20.0 bar", impulse: "6.0 N·s" },
+      { time: 0.4, thrust: "100.0 N", pressure: "20.0 bar", impulse: "11.0 N·s" },
+    ];
+    for (const point of expected) {
+      const texts = render(recordingContext(1920, 1080), {
+        style: { layout: "stacked", summaryMode, showImpulse: true }, time: point.time,
+        measurement: { start: 0.05, end: 0.15 },
+      });
+      const live = textsInRect(texts, left);
+      const results = textsInRect(texts, panel).filter((text) => text.bottom < plots.thrust.y);
+      assert.equal(live.filter(({ value }) => value === "LIVE TOTALS").length, 1);
+      assert.equal(followingValue(live, "PEAK THRUST"), point.thrust);
+      assert.equal(followingValue(live, "PEAK PRESSURE"), point.pressure);
+      assert.equal(followingValue(live, "IMPULSE SO FAR"), point.impulse);
+      assert.ok(!live.some(({ value }) => value === "FINAL RESULTS" || value === "TOTAL IMPULSE"));
+      assert.equal(results.filter(({ value }) => value === "FINAL RESULTS").length, 1);
+      assert.equal(followingValue(results, "PEAK THRUST"), "100.0 N");
+      assert.equal(followingValue(results, "PEAK PRESSURE"), "20.0 bar");
+      assert.equal(followingValue(results, "TOTAL IMPULSE"), "11.0 N·s");
+      assert.equal(texts.filter(({ value }) => value === "TOTAL IMPULSE").length, 1);
+      assert.equal(texts.filter(({ value }) => value === "IMPULSE SO FAR").length, 1);
+      assert.ok(!texts.some(({ value }) => value === "IMPULSE"));
+      assert.equal(texts.filter(({ value }) => value === "Burn duration 0.100 s").length, 1);
+      for (const text of results) assertInside(text, panel);
+      assertNoTextOverlap(results, "Graph results header");
+      assertUncompressed(texts);
+    }
+  }
+});
+
+test("stacked live totals show pending, gaps, completion, and rewind without leaking future peaks", () => {
+  const data = parseCSV("time_ms;thrust;pressure\n0;0;0\n100;10;2\n200;20;4\n2000;100;20\n2100;0;0");
+  assert.equal(data.gaps, 1);
+  const { left, panel, plots } = stackedRegions(1920, 1080);
+  const ctx = recordingContext(1920, 1080);
+  const cases = [
+    { time: -0.1, state: "WAITING", thrust: "0.0 N", pressure: "0.0 bar", impulse: "0.0 N·s" },
+    { time: 1, state: "DATA GAP", thrust: "20.0 N", pressure: "4.0 bar", impulse: "2.0 N·s" },
+    { time: 2.2, state: "COMPLETE", thrust: "100.0 N", pressure: "20.0 bar", impulse: "7.0 N·s" },
+    { time: 0.1, state: "ACTIVE", thrust: "10.0 N", pressure: "2.0 bar", impulse: "0.5 N·s" },
+  ];
+  for (const point of cases) {
+    ctx.texts.length = 0;
+    const texts = render(ctx, { data, time: point.time,
+      style: { layout: "stacked", summaryMode: "final" } });
+    const live = textsInRect(texts, left);
+    const final = textsInRect(texts, panel).filter((text) => text.bottom < plots.thrust.y);
+    assert.ok(live.some(({ value }) => value === "LIVE TOTALS"));
+    assert.ok(live.some(({ value }) => value === point.state), point.state);
+    assert.equal(followingValue(live, "PEAK THRUST"), point.thrust);
+    assert.equal(followingValue(live, "PEAK PRESSURE"), point.pressure);
+    assert.equal(followingValue(live, "IMPULSE SO FAR"), point.impulse);
+    assert.equal(followingValue(final, "PEAK THRUST"), "100.0 N");
+    assert.equal(followingValue(final, "TOTAL IMPULSE"), "7.0 N·s");
+    assert.ok(!texts.some(({ value }) => /NaN|Infinity/.test(value)));
+    assertNoTextOverlap(live, `${point.state} live card`);
+  }
+});
+
+test("stacked visibility controls never duplicate impulse or leave empty result headings", () => {
+  for (const showDetails of [false, true]) {
+    for (const showPressure of [false, true]) {
+      for (const showImpulse of [false, true]) {
+        const style = { layout: "stacked", showDetails, showPressure, showImpulse };
+        const { panel, plots } = stackedRegions(1920, 1080, style);
+        const texts = render(recordingContext(1920, 1080), { style });
+        assert.equal(texts.filter(({ value }) => value === "FINAL RESULTS").length, Number(showDetails));
+        assert.equal(texts.filter(({ value }) => value === "LIVE TOTALS").length, Number(showDetails));
+        assert.equal(texts.filter(({ value }) => value === "TOTAL IMPULSE").length, Number(showDetails));
+        assert.equal(texts.filter(({ value }) => value === "IMPULSE SO FAR").length,
+          Number(showDetails || showImpulse));
+        assert.equal(texts.filter(({ value }) => value === "PEAK PRESSURE").length,
+          showDetails && showPressure ? 2 : 0);
+        assert.equal(texts.filter(({ value }) => value === "Pressure · bar").length, Number(showPressure));
+        assert.ok(!texts.some(({ value }) => value === "IMPULSE"));
+        if (!showDetails) {
+          assert.ok(!texts.some(({ value }) => recordLabels.includes(value) ||
+            value === populated.motor || value === populated.testDate));
+          if (showImpulse) {
+            const compact = texts.find(({ value }) => value === "IMPULSE SO FAR");
+            assertInside(compact, panel);
+            assert.ok(compact.bottom < plots.thrust.y, "The sole live impulse belongs to the graph header");
+          }
+        }
+        assertUncompressed(texts);
+      }
+    }
+  }
+  const empty = render(recordingContext(1920, 1080), {
+    data: null, style: { layout: "stacked" },
+  });
+  assert.ok(!empty.some(({ value }) => value === "FINAL RESULTS" || value === "LIVE TOTALS" ||
+    value === "TOTAL IMPULSE" || value === "IMPULSE SO FAR"));
+});
+
+test("stacked final results use display units and original logger integration after time stretch", () => {
+  const { left, panel, plots } = stackedRegions(1920, 1080);
+  for (const [offset, scale, time] of [[0, 1, 0.1], [3, 2, 3.2], [-2, 0.5, -1.95]]) {
+    const texts = render(recordingContext(1920, 1080), {
+      time, offset, scale, measurement: { start: 0.05, end: 0.15 },
+      style: { layout: "stacked", thrustUnit: "lbf", pressureUnit: "kPa", summaryMode: "final" },
+    });
+    const live = textsInRect(texts, left);
+    const final = textsInRect(texts, panel).filter((text) => text.bottom < plots.thrust.y);
+    assert.equal(followingValue(live, "PEAK THRUST"), "2.25 lbf");
+    assert.equal(followingValue(live, "PEAK PRESSURE"), "200.0 kPa");
+    assert.equal(followingValue(live, "IMPULSE SO FAR"), "0.112 lbf·s");
+    assert.equal(followingValue(final, "PEAK THRUST"), "22.5 lbf");
+    assert.equal(followingValue(final, "PEAK PRESSURE"), "2,000.0 kPa");
+    assert.equal(followingValue(final, "TOTAL IMPULSE"), "2.47 lbf·s");
+    assert.equal(texts.filter(({ value }) => value === "Burn duration 0.100 s").length, 1);
+    assertUncompressed(texts);
+  }
+});
+
+test("narrow stacked metadata wraps vertically without covering live totals or source strips", () => {
+  const metadata = {
+    motor: "ARC-24 Experimental Development Motor",
+    testDate: "2026-10-17",
+    testId: "BATCH-024 / Serial 000042",
+    location: "North range / test area A1",
+    logger: "Calibrated thrust and pressure logger v2.1.2",
+    sampleRate: "50 Hz / acquisition interval 20 ms",
+    camera: "High speed camera / 1920 × 1080 at 120 fps",
+    notes: "Propellant lot AL-20. Calibrated load cell and chamber pressure sensors. Ambient temperature 18 °C. Static stand inspection completed before recording.",
+  };
+  for (const [width, height] of [[1920, 1080], [1080, 1920], [4096, 540]]) {
+    const { geometry, left, panel } = stackedRegions(width, height);
+    assert.ok(geometry.cards.width <= 392, "Metadata cards keep a narrow footprint");
+    assert.ok(left.x + left.width + 24 * geometry.scale <= panel.x,
+      "Cards leave open video between metadata and the graphs");
+    const texts = render(recordingContext(width, height), {
+      metadata, sourceInfo: source, style: { layout: "stacked", summaryMode: "final" },
+    });
+    const cardTexts = textsInRect(texts, left);
+    for (const value of ["2026-10-17", ...recordLabels, "LIVE TOTALS", "PEAK THRUST", "PEAK PRESSURE", "IMPULSE SO FAR"])
+      assert.equal(cardTexts.filter((text) => text.value === value).length, 1, value);
+    const notes = cardTexts.findIndex(({ value }) => value === "NOTES");
+    const liveHeading = cardTexts.findIndex(({ value }) => value === "LIVE TOTALS");
+    const noteLines = cardTexts.slice(notes + 1, liveHeading);
+    assert.ok(noteLines.length > 1, "Long notes use additional rows instead of a wide card");
+    assert.ok(noteLines.every(({ size }) => size / geometry.scale >= 12),
+      "Wrapped notes retain readable text");
+    const lastMetadataBottom = Math.max(...cardTexts.slice(0, liveHeading).map(({ bottom }) => bottom));
+    const firstLiveTop = Math.min(...cardTexts.slice(liveHeading).map(({ top }) => top));
+    assert.ok(lastMetadataBottom + 12 * geometry.scale <= firstLiveTop,
+      "The metadata card has a clear gap before live totals");
+    assertNoTextOverlap(cardTexts, `${width} × ${height} left cards`);
+    for (const text of cardTexts) assertInside(text, left);
+    const composition = compositionGeometry(width, height, 1920, 1080,
+      { ...defaultStyle, layout: "stacked" });
+    const header = texts.filter((text) => inBox(text, composition.header));
+    const footer = texts.filter((text) => inBox(text, composition.sources));
+    assert.equal(header.length, 3);
+    for (const text of header) assertInside(text, composition.header);
+    for (const text of footer) assertInside(text, composition.sources);
+    assertUncompressed(texts);
   }
 });

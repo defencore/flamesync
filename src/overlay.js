@@ -1,4 +1,4 @@
-import { clamp, sampleAt, dataTimeAt, formatValue } from "./data.js";
+import { clamp, sampleAt, cumulativeAt, dataTimeAt, formatValue } from "./data.js";
 import { displayThrust, displayPressure, DEFAULT_DISPLAY_UNITS } from "./units.js";
 import { presentationScale, telemetryHeight, stackedTelemetryGeometry } from "./composition-layout.js";
 import { overlayTimeDomain } from "./chart-domain.js";
@@ -366,6 +366,61 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
   }
 }
 
+// Final results describe the full source log. The separate left card follows
+// the playhead; changing display timing never changes these physical totals.
+function drawStackedHeader(ctx, geometry, data, t, style, measurement, theory, status) {
+  const { panel } = geometry;
+  const x = panel.x + 22;
+  const width = panel.width - 44;
+  const fg = "#edf3f7", muted = "#a6b5c2";
+  const titleWidth = style.showDetails && data ? width * 0.69 : width;
+  text(ctx, style.title, x, panel.y + 31, 19, fg, 650, "left", titleWidth);
+  const phase = status === "TELEMETRY" ? "" : status.replace(/ · TELEMETRY$/, "");
+  if (phase) text(ctx, phase, x, panel.y + 54, 13, muted, 500, "left", width);
+  if (style.showDetails && data) {
+    text(ctx, "FINAL RESULTS", x + width, panel.y + 30, 12, muted, 650, "right", width * 0.29);
+    const results = [
+      ["PEAK THRUST", data ? displayThrust(data.peakThrust, style.thrustUnit) : null, style.thrustUnit, "#e9a56c"],
+      style.showPressure ? ["PEAK PRESSURE", data ? displayPressure(data.peakPressure, style.pressureUnit) : null, style.pressureUnit, "#69c9c7"] : null,
+      ["TOTAL IMPULSE", data ? displayThrust(data.impulse, style.thrustUnit) : null, `${style.thrustUnit}·s`, "#edf3f7"],
+    ].filter(Boolean);
+    const cellWidth = width / results.length;
+    for (const [index, [label, value, unit, color]] of results.entries()) {
+      const left = x + index * cellWidth;
+      if (index) {
+        ctx.fillStyle = "rgba(202,222,236,.18)";
+        ctx.fillRect(left - 10, panel.y + 65, 1, 44);
+      }
+      text(ctx, label, left, panel.y + 77, 12, muted, 600, "left", cellWidth - 18);
+      text(ctx, `${formatValue(value)} ${unit}`, left, panel.y + 106, 22, color, 650, "left", cellWidth - 18);
+    }
+  } else if (!style.showDetails && style.showImpulse && data) {
+    const totals = cumulativeAt(data, t);
+    text(ctx, "IMPULSE SO FAR", x, panel.y + 77, 12, muted, 600, "left", width);
+    text(ctx, `${formatValue(totals ? displayThrust(totals.impulse, style.thrustUnit) : null)} ${style.thrustUnit}·s`,
+      x, panel.y + 106, 22, fg, 650, "left", width);
+  }
+  const validMeasurement = data && measurement && measurement.visible !== false &&
+    Number.isFinite(measurement.start) && Number.isFinite(measurement.end) &&
+    measurement.end > measurement.start;
+  if (validMeasurement)
+    text(ctx, `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s`,
+      x, panel.y + 142, 17, fg, 600, "left", theory?.data ? width - 198 : width);
+  if (theory?.data) {
+    const legendX = x + width - 180;
+    text(ctx, "Measured", legendX, panel.y + 142, 14, muted, 500);
+    text(ctx, "Theory", x + width, panel.y + 142, 14, "#f3d05c", 600, "right");
+    ctx.strokeStyle = "#f3d05c";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(legendX + 82, panel.y + 137);
+    ctx.lineTo(legendX + 106, panel.y + 137);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
 export function drawOverlay(
   ctx,
   w,
@@ -398,7 +453,6 @@ export function drawOverlay(
   const grid = light ? "rgba(34,50,67,.10)" : "rgba(219,229,242,.11)";
   const thrustColor = light ? "#ad4f29" : "#e9a56c";
   const pressureColor = light ? "#177f85" : "#69c9c7";
-  const theoryColor = light ? "#87620a" : "#f3d05c";
   const opacity = (stacked ? clamp(style.opacity, 0, 95) : style.opacity) / 100;
   ctx.fillStyle = light
     ? `rgba(246,248,250,${opacity})`
@@ -426,35 +480,7 @@ export function drawOverlay(
     measurement.end > measurement.start;
   const visibleMeasurement = validMeasurement && measurement.visible !== false;
   if (stacked) {
-    const x = panel.x + 22;
-    const contentWidth = panel.width - 44;
-    text(ctx, style.title, x, top + 31, 19, fg, 650, "left", contentWidth);
-    const stackedStatus = status === "TELEMETRY" ? "" : status.replace(/ · TELEMETRY$/, "");
-    if (stackedStatus)
-      text(ctx, stackedStatus, x, top + 57, 14, muted, 500, "left", contentWidth);
-    if (visibleMeasurement)
-      text(ctx, `Burn duration ${(measurement.end - measurement.start).toFixed(3)} s`,
-        x, top + 88, 18, fg, 600, "left", contentWidth);
-    if (theory?.data) {
-      text(ctx, "Measured", x, top + 116, 15, muted, 500);
-      text(ctx, "Theory", x + 142, top + 116, 15, theoryColor, 600);
-      ctx.strokeStyle = theoryColor;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 3]);
-      ctx.beginPath();
-      ctx.moveTo(x + 104, top + 111);
-      ctx.lineTo(x + 130, top + 111);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    if (style.showImpulse) {
-      const impulse = data && (sample || t < data.start || t > data.end)
-        ? displayThrust(t > data.end ? data.impulse : t < data.start ? 0 : sample.impulse, style.thrustUnit)
-        : null;
-      text(ctx, "IMPULSE", x, top + panelHeight - 20, 14, muted, 600);
-      text(ctx, `${formatValue(impulse)} ${style.thrustUnit}·s`, panel.x + panel.width - 22,
-        top + panelHeight - 20, 20, fg, 600, "right", contentWidth * 0.65);
-    }
+    drawStackedHeader(ctx, geometry, data, t, style, measurement, theory, status);
   } else {
     const statusLimit = width * (visibleMeasurement ? 0.34 : 0.48);
     text(ctx, status, width - 26, top + 28, 15, muted, 500, "right", statusLimit);

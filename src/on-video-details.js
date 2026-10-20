@@ -8,11 +8,13 @@ const foreground = "#edf3f7";
 const muted = "#bdcbd6";
 const thrust = "#e9a56c";
 const pressure = "#69c9c7";
+const family = "system-ui, -apple-system, sans-serif";
+const metadataLayouts = new WeakMap();
 
 // Text contrast remains independent of the floating panel's background alpha.
 function text(ctx, value, x, y, width, size = 17, color = foreground, weight = 500, align = "left") {
   ctx.save();
-  ctx.font = `${weight} ${size}px system-ui, -apple-system, sans-serif`;
+  ctx.font = `${weight} ${size}px ${family}`;
   ctx.textAlign = align;
   const label = textLines(ctx, value, width, 1)[0] || "";
   ctx.lineJoin = "round";
@@ -31,6 +33,137 @@ function card(ctx, x, y, width, height, opacity) {
   ctx.fillRect(x, y, width, height);
   ctx.fillStyle = "rgba(223,234,244,.3)";
   ctx.fillRect(x, y, 2, height);
+}
+
+// Full values wrap naturally. Only a genuinely full card shares its remaining
+// lines among fields, so even unusually long notes cannot hide another field.
+function recordLayout(ctx, fields, width, height) {
+  const labelWidth = Math.min(92, width * 0.29);
+  const valueWidth = width - labelWidth - 12;
+  let size = 17;
+  let lineHeight = 22;
+  let gap = 8;
+  let rows = [];
+  let naturalHeight = 0;
+  for (; size >= 15; size--) {
+    ctx.font = `500 ${size}px ${family}`;
+    lineHeight = size + 5;
+    rows = fields.map(([label, value]) => ({
+      label,
+      value,
+      lines: textLines(ctx, value, valueWidth, Infinity),
+    }));
+    naturalHeight = rows.reduce((sum, row) => sum + row.lines.length * lineHeight, 0)
+      + gap * Math.max(0, rows.length - 1);
+    if (naturalHeight <= height) break;
+  }
+  size = Math.max(15, size);
+  ctx.font = `500 ${size}px ${family}`;
+  lineHeight = size + 5;
+  gap = Math.min(gap, Math.max(0,
+    (height - fields.length * lineHeight) / Math.max(1, fields.length - 1)));
+  const availableLines = Math.max(fields.length,
+    Math.floor((height - gap * Math.max(0, fields.length - 1)) / lineHeight));
+  const allowances = fields.map(() => 1);
+  let remaining = availableLines - fields.length;
+  while (remaining > 0) {
+    let changed = false;
+    rows.forEach((row, index) => {
+      if (remaining > 0 && allowances[index] < row.lines.length) {
+        allowances[index]++;
+        remaining--;
+        changed = true;
+      }
+    });
+    if (!changed) break;
+  }
+  rows = rows.map((row, index) => ({
+    label: row.label,
+    lines: textLines(ctx, row.value, valueWidth, allowances[index]),
+  }));
+  return {
+    size,
+    lineHeight,
+    gap,
+    labelWidth,
+    valueWidth,
+    rows,
+    height: rows.reduce((sum, row) => sum + row.lines.length * lineHeight, 0)
+      + gap * Math.max(0, rows.length - 1),
+  };
+}
+
+function metadataLayout(ctx, metadata, width, maxHeight) {
+  const fields = [
+    ["TEST ID", metadata.testId],
+    ["LOCATION", metadata.location],
+    ["LOGGER", metadata.logger],
+    ["LOG RATE", metadata.sampleRate],
+    ["CAMERA", metadata.camera],
+    ["NOTES", metadata.notes],
+  ].filter(([, value]) => value?.trim());
+  const key = JSON.stringify([metadata.motor, metadata.testDate, fields, width, maxHeight]);
+  const cached = metadataLayouts.get(ctx);
+  if (cached?.key === key) return cached.layout;
+  ctx.font = `650 29px ${family}`;
+  const model = textLines(ctx, metadata.motor?.trim(), width, 2);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(metadata.testDate) ? metadata.testDate : "";
+  const identityHeight = model.length * 35 + (date ? 26 : 0);
+  const recordY = identityHeight + (identityHeight && fields.length ? 14 : 0);
+  const record = recordLayout(ctx, fields, width, Math.max(0, maxHeight - 36 - recordY));
+  const height = model.length || date || fields.length ? recordY + record.height + 36 : 0;
+  const layout = { model, date, recordY, record, height };
+  metadataLayouts.set(ctx, { key, layout });
+  return layout;
+}
+
+function drawMetadata(ctx, cards, metadata, contentX, contentWidth, maxHeight, opacity) {
+  const layout = metadataLayout(ctx, metadata, contentWidth, maxHeight);
+  if (!layout.height) return;
+  card(ctx, cards.x, cards.top, cards.width, layout.height, opacity);
+  let y = cards.top + 18;
+  for (const line of layout.model) {
+    text(ctx, line, contentX, y + 27, contentWidth, 29, foreground, 650);
+    y += 35;
+  }
+  if (layout.date) text(ctx, layout.date, contentX, y + 18, contentWidth, 17, muted);
+  const record = layout.record;
+  y = cards.top + 18 + layout.recordY;
+  for (const row of record.rows) {
+    text(ctx, row.label, contentX, y + record.size,
+      record.labelWidth, 13, muted, 650);
+    row.lines.forEach((line, index) => text(ctx, line,
+      contentX + record.labelWidth + 12,
+      y + record.size + index * record.lineHeight,
+      record.valueWidth, record.size));
+    y += row.lines.length * record.lineHeight + record.gap;
+  }
+}
+
+function drawLiveTotals(ctx, cards, totals, style, contentX, contentWidth, opacity, height) {
+  const rows = [
+    ["PEAK THRUST", `${formatValue(displayThrust(totals.peakThrust, style.thrustUnit))} ${style.thrustUnit}`, thrust],
+    style.showPressure
+      ? ["PEAK PRESSURE", `${formatValue(displayPressure(totals.peakPressure, style.pressureUnit))} ${style.pressureUnit}`, pressure]
+      : null,
+    ["IMPULSE SO FAR", `${formatValue(displayThrust(totals.impulse, style.thrustUnit))} ${style.thrustUnit}·s`, thrust],
+  ].filter(Boolean);
+  const top = cards.bottom - height;
+  card(ctx, cards.x, top, cards.width, height, opacity);
+  const status = totals.phase === "complete" ? "COMPLETE"
+    : totals.phase === "pending" ? "WAITING"
+      : totals.phase === "gap" ? "DATA GAP" : "ACTIVE";
+  text(ctx, "LIVE TOTALS", contentX, top + 24, contentWidth * 0.57, 13, muted, 650);
+  text(ctx, status, contentX + contentWidth, top + 24,
+    contentWidth * 0.4, 11, totals.phase === "gap" ? thrust : muted, 650, "right");
+  ctx.fillStyle = "rgba(202,222,236,.18)";
+  ctx.fillRect(contentX, top + 35, contentWidth, 1);
+  let y = top + 58;
+  for (const [label, value, color] of rows) {
+    text(ctx, label, contentX, y, contentWidth, 13, muted, 600);
+    text(ctx, value, contentX, y + 27, contentWidth, 24, color, 650);
+    y += 54;
+  }
 }
 
 // Keep both source clocks on one line without repeating category headings.
@@ -90,62 +223,11 @@ export function drawOnVideoDetails(
   ctx.scale(scale, scale);
   drawTechnicalHeader(ctx, header, source, data, videoTime, csvTime);
   if (style.showDetails) {
-    const fields = [
-      ["TEST ID", metadata.testId],
-      ["LOCATION", metadata.location],
-      ["LOGGER", metadata.logger],
-      ["LOG RATE", metadata.sampleRate],
-      ["CAMERA", metadata.camera],
-      ["NOTES", metadata.notes],
-    ].filter(([, value]) => value?.trim());
-    ctx.font = "650 30px system-ui, -apple-system, sans-serif";
-    const model = textLines(ctx, metadata.motor?.trim(), contentWidth, 2);
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(metadata.testDate) ? metadata.testDate : "";
-    const headerHeight = model.length * 35 + (date ? 27 : 0);
-    if (headerHeight || fields.length) {
-      const topHeight = headerHeight + fields.length * 28 + 30;
-      card(ctx, x, cards.top, cards.width, topHeight, opacity);
-      let y = cards.top + 18;
-      for (const line of model) {
-        text(ctx, line, contentX, y + 27, contentWidth, 30, foreground, 650);
-        y += 35;
-      }
-      if (date) {
-        text(ctx, date, contentX, y + 18, contentWidth, 18, muted);
-        y += 27;
-      }
-      const labelWidth = Math.min(112, contentWidth * 0.31);
-      for (const [label, value] of fields) {
-        text(ctx, label, contentX, y + 18, labelWidth - 8, 13, muted, 650);
-        text(ctx, value, contentX + labelWidth, y + 18, contentWidth - labelWidth, 17);
-        y += 28;
-      }
-    }
-  }
-
-  const totals = data && style.showDetails
-    ? cumulativeAt(data, style.summaryMode === "final" ? data.end : csvTime)
-    : null;
-  if (totals) {
-    const rows = [
-      ["PEAK THRUST", `${formatValue(displayThrust(totals.peakThrust, style.thrustUnit))} ${style.thrustUnit}`, thrust],
-      style.showPressure ? ["PEAK PRESSURE", `${formatValue(displayPressure(totals.peakPressure, style.pressureUnit))} ${style.pressureUnit}`, pressure] : null,
-      ["TOTAL IMPULSE", `${formatValue(displayThrust(totals.impulse, style.thrustUnit))} ${style.thrustUnit}·s`, thrust],
-    ].filter(Boolean);
-    const totalHeight = 50 + rows.length * 30;
-    const top = cards.bottom - totalHeight;
-    card(ctx, x, top, cards.width, totalHeight, opacity);
-    let y = top + 24;
-    const label = totals.phase === "complete" ? "FINAL RESULTS"
-      : totals.phase === "pending" ? "AWAITING DATA"
-        : totals.phase === "gap" ? "LIVE TOTALS · DATA GAP" : "LIVE TOTALS";
-    text(ctx, label, contentX, y, contentWidth, 13, muted, 650);
-    y += 30;
-    for (const [label, value, color] of rows) {
-      text(ctx, label, contentX, y, contentWidth * 0.46, 13, muted, 600);
-      text(ctx, value, contentX + contentWidth, y, contentWidth * 0.52, 22, color, 650, "right");
-      y += 30;
-    }
+    const totals = data ? cumulativeAt(data, csvTime) : null;
+    const totalHeight = totals ? 48 + (style.showPressure ? 3 : 2) * 54 : 0;
+    const metadataHeight = cards.bottom - cards.top - totalHeight - (totals ? 18 : 0);
+    drawMetadata(ctx, cards, metadata, contentX, contentWidth, metadataHeight, opacity);
+    if (totals) drawLiveTotals(ctx, cards, totals, style, contentX, contentWidth, opacity, totalHeight);
   }
   ctx.restore();
 }

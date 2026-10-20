@@ -143,9 +143,10 @@ export async function verifyPreferences({ browser, baseURL, outputDir }) {
     await page.locator('[data-theme="light"]').click(); await page.locator('[data-trace="live"]').click();
     const expected = {
       "language-select": "en", "meta-motor": "PREFERENCE MOTOR", "meta-testDate": "2026-10-20", "meta-logger": "Reusable logger", "meta-notes": "Reusable recording notes",
+      "show-impulse": true,
       "presentation-layout": "stacked", "chart-range": "full", "frame-aspect": "portrait", "test-title": "REUSABLE TEST",
       "video-scale": "125", "video-position-x": "-14", "video-position-y": "9", "overlay-opacity": "0",
-      "thrust-unit": "lbf", "pressure-unit": "psi", "show-pressure": false, "show-impulse": true,
+      "thrust-unit": "lbf", "pressure-unit": "psi", "show-pressure": false,
       "export-format": "webm", "export-resolution": "1280", "export-quality": "medium", "export-fps": "60", "keep-audio": false,
       "csv-time-unit": "us", "source-thrust-unit": "N", "source-pressure-unit": "kPa",
       "profiles-source-time": "us", "profiles-source-thrust": "N", "profiles-source-pressure": "kPa",

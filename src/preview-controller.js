@@ -64,6 +64,8 @@ export function createPreviewController(editor) {
     $("video-framing-drag").hidden = !stacked;
     $("theme-setting").hidden = stacked;
     $("height-setting").hidden = stacked;
+    $("summary-setting").hidden = stacked;
+    $("impulse-setting").hidden = stacked && state.style.showDetails;
     $("overlay-opacity").min = stacked ? "0" : "45";
     $("overlay-opacity").max = stacked ? "95" : "100";
     $("overlay-opacity").value = String(state.style.opacity);
