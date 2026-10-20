@@ -53,6 +53,9 @@ async function settle(target = page) {
 }
 async function openEditor(target = page) {
   await target.goto(baseURL);
+  // Each independent scenario starts from factory settings. Intentional reload
+  // persistence checks use their own pages and do not call this setup helper.
+  await target.locator("#clear-settings").click();
   await select("language-select", "en", target);
   assert.equal(await target.locator("#source-thrust-unit").inputValue(), "kgf");
   assert.equal(await target.locator("#source-pressure-unit").inputValue(), "bar");
@@ -488,9 +491,9 @@ async function verifyLocalization(fixture) {
     "Додати відео",
   );
   assert.deepEqual(
-    await editor.evaluate(() => Object.keys(localStorage)),
-    ["flamesync.language"],
-    "Only the language preference is persisted.",
+    await editor.evaluate(() => Object.keys(localStorage).sort()),
+    ["flamesync.language", "flamesync.preferences"],
+    "Only language and reusable preferences are persisted; project files stay in memory.",
   );
   await editor.close();
   console.log(
@@ -886,7 +889,11 @@ async function verifyMeasurements(fixture) {
       .querySelector("#timing-video-detail")
       .textContent.includes("frames checked"),
   );
+  await settle(editor);
   await editor.locator("#analysis-controls > summary").click();
+  // Opening this disclosure schedules a render of the timing controls.
+  // Finish that render before entering the new duration and committing it.
+  await settle(editor);
   await change("stretch-percent", 200, editor);
   const offset = await editor.locator("#sync-offset").inputValue();
   await editor
@@ -1852,11 +1859,18 @@ try {
     await mobile.locator("#measure-duration").textContent(),
     "0.190 s",
   );
-  await mobile
-    .getByRole("button", { name: "About source frames", exact: true })
-    .click();
+  const sourceFrameHelp = mobile.getByRole("button", {
+    name: "About source frames", exact: true,
+  });
+  // A scroll dismisses tooltips. Finish the mobile inspector's automatic
+  // scroll before opening one so a delayed scroll cannot hide it mid-check.
+  await sourceFrameHelp.scrollIntoViewIfNeeded();
+  await settle(mobile);
+  await sourceFrameHelp.click();
+  await mobile.locator("#info-tooltip").waitFor({ state: "visible" });
   assert.equal(await mobile.locator("#info-tooltip").isVisible(), true);
   const tooltipBox = await mobile.locator("#info-tooltip").boundingBox();
+  assert.ok(tooltipBox, "The opened mobile source tooltip must remain visible.");
   assert.ok(tooltipBox.x >= 0 && tooltipBox.x + tooltipBox.width <= 390);
   assert.equal(
     await mobile.evaluate(

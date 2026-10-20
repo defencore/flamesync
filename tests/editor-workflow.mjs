@@ -153,6 +153,9 @@ export async function verifyEditorWorkflow({
   };
   const open = async (video = fixture, filename = "workflow-local.webm") => {
     await page.goto(baseURL);
+    // Reusable preferences now survive navigation; isolate independent editor
+    // scenarios explicitly without altering their within-scenario assertions.
+    await page.locator("#clear-settings").click();
     await page.locator("#language-select").selectOption("en");
     await page.locator("#csv-settings").evaluate((element) => { element.open = true; });
     await page.locator("#source-thrust-unit").selectOption("N");

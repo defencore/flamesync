@@ -48,6 +48,7 @@ export function createVideoFramingController(editor) {
   function paint() {
     update();
     editor.preview.render();
+    if (!active) editor.preferences.saveFraming();
   }
   function apply(gesture) {
     if (!gesture.ready || !sameGeometry(gesture) || !available()) return;
@@ -220,6 +221,11 @@ export function createVideoFramingController(editor) {
   update();
   return {
     update,
+    cancel() {
+      finish(true, false);
+      setDragMode(false);
+      update();
+    },
     dispose() {
       finish(true, false);
       disposed = true;

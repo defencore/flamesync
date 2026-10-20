@@ -2,6 +2,7 @@ import { uk } from "./locales/uk.js";
 import { formatMessage, message } from "./messages.js";
 
 let locale = "uk";
+export const LANGUAGE_STORAGE_KEY = "flamesync.language";
 const texts = new Map();
 const attributes = new Map();
 export const getLocale = () => locale;
@@ -58,12 +59,12 @@ function applyLocale() {
   }
   document.getElementById("language-select").value = locale;
 }
-export function setLocale(value) {
+export function setLocale(value, { persist = true } = {}) {
   if (!["uk", "en"].includes(value))
     throw new Error(`Unsupported interface language: ${value}`);
   locale = value;
   try {
-    localStorage.setItem("flamesync.language", locale);
+    if (persist) localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
   } catch {
     /* The editor also works when preferences cannot be stored. */
   }
@@ -72,7 +73,7 @@ export function setLocale(value) {
 }
 export function initializeLanguage() {
   try {
-    const stored = localStorage.getItem("flamesync.language");
+    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
     if (stored === "en" || stored === "uk") locale = stored;
   } catch {
     /* Language storage is optional. */

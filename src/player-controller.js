@@ -302,16 +302,18 @@ export function createPlayerController(editor) {
     video.pause();
     seek(Number(event.target.value));
   });
-  listen($("playback-rate"), "change", (event) => {
-    video.playbackRate = Number(event.target.value);
-  });
-  listen($("mute-button"), "click", () => {
-    video.muted = !video.muted;
+  function applyPreferences() {
+    video.defaultPlaybackRate = video.playbackRate = Number($("playback-rate").value);
     const label = video.muted ? "Unmute preview" : "Mute preview";
     bindAttribute("mute-button", "aria-label", label);
     bindAttribute("mute-button", "title", label);
     $("mute-button").innerHTML =
       `<svg class="icon"><use href="#i-${video.muted ? "muted" : "volume"}"/></svg>`;
+  }
+  listen($("playback-rate"), "change", applyPreferences);
+  listen($("mute-button"), "click", () => {
+    video.muted = !video.muted;
+    applyPreferences();
   });
   listen($("fullscreen"), "click", async () => {
     try {
@@ -372,6 +374,7 @@ export function createPlayerController(editor) {
     currentTime,
     pauseAtCurrentFrame,
     updatePlayhead,
+    applyPreferences,
     dispose() {
       disposed = true;
       markVersion++;

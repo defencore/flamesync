@@ -14,6 +14,7 @@ import { createUIController } from "./ui-controller.js";
 import { bindAppearanceControls } from "./appearance-controller.js";
 import { createVideoFramingController } from "./video-framing-controller.js";
 import { createExportController } from "./export-controller.js";
+import { createPreferencesController } from "./preferences.js";
 import { bindTooltips } from "./tooltips.js";
 import { initializeLanguage, bindText } from "./i18n.js";
 import { errorMessage } from "./messages.js";
@@ -40,6 +41,7 @@ const editor = {
       refreshFrame = 0;
       const full = fullRefresh;
       fullRefresh = false;
+      editor.preferences?.update();
       if ($("video-editor").hidden) {
         editor.framing?.update();
         return;
@@ -62,6 +64,7 @@ const editor = {
 };
 
 try {
+  editor.preferences = createPreferencesController(editor);
   initializeLanguage();
   editor.ui = createUIController(editor);
   editor.preview = createPreviewController(editor);
@@ -86,6 +89,7 @@ try {
     },
   });
   state.theory = editor.theory.snapshot();
+  editor.preferences.connect({ profiles, theory: editor.theory });
   bindTabs($("studio-modes"), (tab) => {
     const analysis = tab.dataset.panel === "profiles";
     if (analysis) editor.video.pause();
@@ -107,6 +111,7 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 window.addEventListener("pagehide", () => {
+  editor.preferences?.dispose();
   cancelAnimationFrame(refreshFrame);
   disposeShortcuts?.();
   editor.framing?.dispose();

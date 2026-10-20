@@ -50,7 +50,7 @@ export function createSourceController(editor) {
   }
   async function loadCSV(
     file,
-    { preserveSync = false, settings = readSettings() } = {},
+    { preserveSync = false, settings = editor.preferences.csvImportSettings(), rememberSettings = false } = {},
   ) {
     const version = ++csvVersion;
     csvCandidate = file;
@@ -71,6 +71,7 @@ export function createSourceController(editor) {
       state.data = parsed;
       state.csvFile = file;
       state.csvSettings = { ...settings };
+      if (rememberSettings) editor.preferences.saveCSVSettings(settings);
       state.reduced = reduced;
       if (!preserveSync) {
         state.timeScale = 1;
@@ -78,7 +79,7 @@ export function createSourceController(editor) {
         editor.timeline.clearFeedback();
         editor.timeline.resetAnchors();
         editor.edits.reset();
-        editor.measurements.detect(true);
+        editor.measurements.detect();
       }
       $("csv-end-anchor").min = String(parsed.start);
       $("csv-end-anchor").max = String(parsed.end);
@@ -122,11 +123,15 @@ export function createSourceController(editor) {
       if (csvCandidate)
         loadCSV(csvCandidate, {
           settings,
+          rememberSettings: true,
           preserveSync:
             csvCandidate === state.csvFile &&
             settings.timeUnit === state.csvSettings.timeUnit,
         });
-      else state.csvSettings = settings;
+      else {
+        state.csvSettings = settings;
+        editor.preferences.saveCSVSettings(settings);
+      }
     };
   }
 
@@ -178,8 +183,9 @@ export function createSourceController(editor) {
       video.pause();
       if (state.videoURL) URL.revokeObjectURL(state.videoURL);
       state.videoURL = url;
+      const replacingVideo = Boolean(state.file);
       state.file = file;
-      Object.assign(state.style, DEFAULT_VIDEO_FRAMING);
+      if (replacingVideo) Object.assign(state.style, DEFAULT_VIDEO_FRAMING);
       state.duration = probe.duration;
       state.start = 0;
       state.end = probe.duration;

@@ -27,10 +27,13 @@ const textNode = (tag, text, className) => {
 export function createProfileWorkspace() {
   const worker = createProfileWorker(), records = [];
   let reference = "", selected = "", sequence = 0, revision = 0, busy = 0,
-    threshold = 5, noiseWindow = .1, view = null, crosshair = null, pick = null,
+    threshold = $("profiles-threshold").valueAsNumber,
+    noiseWindow = $("profiles-noise-window").valueAsNumber / 1000,
+    view = null, crosshair = null, pick = null,
     hoverPending = false, hoverRevision = 0, noticeValue = null, noticeKind = "success", disposed = false,
     pendingCount = 0, pendingBytes = 0, seriesResult = null,
-    theoryState = null, workerTheoryData = null, workerTheoryStats = null, theoryCurves = null, importSequence = 0;
+    theoryState = null, workerTheoryData = null, workerTheoryStats = null, theoryCurves = null, importSequence = 0,
+    lastBusy = false;
   const panel = $("profile-analysis");
   const comparisonHelp = $("profiles-difference-help").getAttribute("data-i18n-data-help");
   const metric = () => $("profiles-metric").value;
@@ -57,9 +60,17 @@ export function createProfileWorkspace() {
     $("profiles-notice").className = `profile-notice ${kind}`;
     $("profiles-notice").textContent = value ? renderNotice(value) : "";
   }
+  function updateBusyState() {
+    const next = Boolean(busy || pendingCount);
+    panel.setAttribute("aria-busy", String(next));
+    if (next !== lastBusy) {
+      lastBusy = next;
+      document.dispatchEvent(new CustomEvent("flamesync:profiles-busy", { detail: { busy: next } }));
+    }
+  }
   function setBusy(change) {
     busy += change;
-    panel.setAttribute("aria-busy", String(busy > 0));
+    updateBusyState();
     $("profiles-processing").hidden = busy === 0;
     $("profiles-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
     $("profiles-demo").disabled = busy > 0;
@@ -346,6 +357,7 @@ export function createProfileWorkspace() {
       if (importVersion === importSequence) notice(failures.length ? failures : message("{count} profiles loaded. Review the detected burn events.", { count: result.records.length }), failures.length ? "error" : "success");
     });
     pendingCount -= accepted.length; pendingBytes -= bytes;
+    updateBusyState();
   }
   async function sampleHover() {
     const version = ++hoverRevision;
@@ -389,12 +401,17 @@ export function createProfileWorkspace() {
   $("profiles-reference").onchange = (event) => { reference = event.target.value; operation(analyze); };
   $("profiles-alignment").onchange = () => { view = null; cancelPick(); operation(analyze); };
   for (const id of ["profiles-metric", "profiles-trace", "profiles-thrust-unit", "profiles-pressure-unit"]) $(id).onchange = () => update();
-  for (const id of ["profiles-threshold", "profiles-noise-window"]) $(id).onchange = () => {
+  function readAnalysisPreferences() {
     const nextThreshold = $("profiles-threshold").valueAsNumber, nextWindow = $("profiles-noise-window").valueAsNumber;
     if (!(nextThreshold >= .1 && nextThreshold <= 99.9 && nextWindow >= 1 && nextWindow <= 10000)) {
-      notice(message("Choose a threshold between 0.1% and 99.9%, and a moving window from 1 to 10000 ms."), "error"); return;
+      notice(message("Choose a threshold between 0.1% and 99.9%, and a moving window from 1 to 10000 ms."), "error"); return false;
     }
-    threshold = nextThreshold; noiseWindow = nextWindow / 1000; view = null; operation(analyze);
+    threshold = nextThreshold; noiseWindow = nextWindow / 1000;
+    return true;
+  }
+  for (const id of ["profiles-threshold", "profiles-noise-window"]) $(id).onchange = () => {
+    if (!readAnalysisPreferences()) return;
+    view = null; operation(analyze);
   };
   $("profiles-fit").onclick = () => { view = null; draw(); };
   $("profiles-pick-cancel").onclick = cancelPick;
@@ -404,5 +421,19 @@ export function createProfileWorkspace() {
   document.addEventListener("keydown", onKey);
   document.addEventListener("flamesync:language", onLanguage);
   update();
-  return { activate: draw, setTheory(next) { const previous = theoryState; theoryState = next; if (previous?.data !== next.data || previous?.stats !== next.stats || previous?.enabled !== next.enabled || previous?.sourceValid !== next.sourceValid || previous?.loading !== next.loading) operation(analyze); else update(); }, dispose() { disposed = true; worker.dispose(); chart.dispose(); pressureChart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); } };
+  return {
+    activate: draw,
+    isBusy: () => Boolean(busy || pendingCount),
+    applyPreferences() {
+      if (disposed || !readAnalysisPreferences()) return Promise.resolve();
+      view = crosshair = null;
+      hoverRevision++;
+      $("profiles-hover").replaceChildren();
+      cancelPick();
+      // Recompute shared methods once without changing per-file inputs or membership.
+      return operation(analyze);
+    },
+    setTheory(next) { const previous = theoryState; theoryState = next; if (previous?.data !== next.data || previous?.stats !== next.stats || previous?.enabled !== next.enabled || previous?.sourceValid !== next.sourceValid || previous?.loading !== next.loading) operation(analyze); else update(); },
+    dispose() { disposed = true; worker.dispose(); chart.dispose(); pressureChart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); },
+  };
 }

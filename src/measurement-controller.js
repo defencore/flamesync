@@ -179,9 +179,8 @@ export function createMeasurementController(editor) {
     $("measurement-status").classList.toggle("error", Boolean(error));
     draw();
   }
-  function detect(reset = false) {
+  function detect() {
     if (!state.data) return;
-    if (reset) $("measure-threshold").value = "5";
     try {
       const percent = Number($("measure-threshold").value);
       const detection = detectBurnInterval(state.data, percent);

@@ -1,5 +1,4 @@
 import { $ } from "./dom.js";
-import { DEFAULT_CSV_SETTINGS } from "./units.js";
 import { bindText } from "./i18n.js";
 import { errorMessage, message } from "./messages.js";
 import { alignTheory, validateTheoryMapping } from "./theory.js";
@@ -19,11 +18,13 @@ const userMessage = (error) => error?.userMessage ?? errorMessage(error);
 
 export function createTheoryController({ onChange = () => {}, notice = () => {} } = {}) {
   let file = null, data = null, reduced = [], stats = null;
-  let settings = { ...DEFAULT_CSV_SETTINGS }, options = {};
+  let importSettings = Object.fromEntries(UNIT_FIELDS.map(([id, key]) => [key, $(id).value]));
+  let settings = { ...importSettings }, options = {};
   let sourceSettings = { ...settings };
   let enabled = $("theory-enabled").checked, loading = false, valid = true;
   let sourceValid = true, timingValid = true, sourceError = null;
-  let mode = "ignition", offset = 0, scale = 1;
+  let importMode = $("theory-alignment").value;
+  let mode = importMode, offset = 0, scale = 1;
   let statusError = null, sequence = 0, revision = 0, sourceSequence = 0;
   let sourceKey = "", worker = null, disposed = false, currentSnapshot;
   const pending = new Map();
@@ -69,7 +70,8 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   }
   function updateSnapshot() {
     currentSnapshot = { file, name: file?.name ?? "", data, reduced, stats,
-      settings: { ...settings }, enabled, loading, valid, sourceValid, mode, offset, scale };
+      settings: { ...settings }, importSettings: { ...importSettings },
+      enabled, loading, valid, sourceValid, mode, offset, scale };
   }
   function render({ fields = false } = {}) {
     $("theory-panel").setAttribute("aria-busy", String(loading));
@@ -79,6 +81,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     $("theory-remove").disabled = !file && !loading;
     for (const id of CONTROL_IDS) $(id).disabled = loading || (!file && ["theory-start", "theory-end", "theory-detect"].includes(id));
     if (fields) {
+      $("theory-alignment").value = mode;
       for (const [id, key] of UNIT_FIELDS) $(id).value = settings[key];
       for (const [id, key] of EVENT_FIELDS) {
         $(id).value = precise(stats?.[key]);
@@ -191,6 +194,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
         options: candidateOptions, includeData: replacement || reparse });
       if (disposed || jobRevision !== revision) return;
       file = candidateFile;
+      if (replacement) mode = importMode;
       settings = { ...candidateSettings };
       sourceSettings = { ...settings };
       options = { ...candidateOptions };
@@ -226,7 +230,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     const candidateFile = event.target.files[0];
     event.target.value = "";
     if (candidateFile)
-      analyze({ candidateFile, candidateSettings: Object.fromEntries(UNIT_FIELDS.map(([id, key]) => [key, $(id).value])),
+      analyze({ candidateFile, candidateSettings: { ...importSettings },
         candidateOptions: {}, replacement: true });
   };
   $("theory-remove").onclick = () => {
@@ -235,6 +239,9 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     file = data = stats = null;
     reduced = [];
     options = {};
+    settings = { ...importSettings };
+    sourceSettings = { ...settings };
+    mode = importMode;
     sourceKey = "";
     loading = false;
     sourceValid = true;
@@ -242,7 +249,10 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     valid = timingValid;
     statusError = null;
     clearInvalid();
-    if (!timingIsValid()) return;
+    if (!timingIsValid()) {
+      render({ fields: true });
+      return;
+    }
     publish({ fields: true });
   };
   $("theory-enabled").onchange = (event) => {
@@ -251,6 +261,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   };
   for (const [id, key] of UNIT_FIELDS) $(id).onchange = () => {
     const nextSettings = Object.fromEntries(UNIT_FIELDS.map(([input, name]) => [name, $(input).value]));
+    importSettings = { ...nextSettings };
     settings = nextSettings;
     if (!file) {
       publish();
@@ -276,6 +287,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     for (const timingId of ["theory-offset", "theory-scale", "theory-alignment"])
       $(timingId).removeAttribute("aria-invalid");
     mode = $("theory-alignment").value;
+    if (id === "theory-alignment") importMode = mode;
     if (!timingIsValid()) return;
     publish();
   };
@@ -283,6 +295,21 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   render({ fields: true });
   return {
     snapshot: () => currentSnapshot,
+    applyPreferences(next) {
+      if (disposed) return;
+      importSettings = Object.fromEntries(UNIT_FIELDS.map(([, key]) => [key, next[key]]));
+      importMode = next.mode;
+      if (!file) {
+        settings = { ...importSettings };
+        sourceSettings = { ...settings };
+        mode = importMode;
+      }
+      enabled = next.enabled;
+      $("theory-enabled").checked = enabled;
+      $("theory-alignment").value = mode;
+      // Loaded source units, event edits and clock calibration belong to the current test.
+      publish({ fields: true });
+    },
     forMeasurement(measurement) {
       if (!enabled || !valid || loading || !file || !data || !stats) return null;
       const measured = {

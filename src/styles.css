@@ -269,6 +269,19 @@ h3 {
 .text-button:hover:enabled {
   text-decoration: underline;
 }
+.clear-settings {
+  min-height: 32px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.clear-settings:hover:enabled {
+  background: #f1f4f7;
+  text-decoration: none;
+}
 .workspace {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
@@ -1117,6 +1130,20 @@ dialog .button {
   .header-right {
     gap: 7px;
   }
+  .clear-settings {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .clear-settings > span {
+    display: none;
+  }
+  .clear-settings .icon {
+    width: 16px;
+    height: 16px;
+  }
   .help-button {
     padding: 4px;
   }
@@ -1842,5 +1869,21 @@ dialog .button {
     flex: 1;
     font-size: 11px;
     padding: 8px;
+  }
+}
+@media (max-width: 420px) {
+  .header-right {
+    gap: 5px;
+  }
+  .language-picker select {
+    width: 44px;
+  }
+}
+@media (max-width: 360px) {
+  .site-header {
+    padding: 0 8px;
+  }
+  .site-header .brand-mark {
+    display: none;
   }
 }

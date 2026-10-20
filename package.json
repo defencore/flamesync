@@ -15,6 +15,7 @@
     "test:series": "node tests/series-browser-runner.mjs",
     "test:theory": "node tests/theory-browser-runner.mjs",
     "test:templates": "node tests/templates-browser-runner.mjs",
+    "test:preferences": "node tests/preferences-browser-runner.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
