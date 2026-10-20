@@ -3,7 +3,7 @@ import { containRect } from "./data.js";
 import { errorMessage } from "./messages.js";
 import { compositionGeometry } from "./composition-layout.js";
 import { DEFAULT_VIDEO_FRAMING, moveVideoFraming, videoFraming } from "./video-framing.js";
-import { createVideoFramingGuides } from "./video-framing-guides.js";
+import { createVideoFramingGuides, framingGuideGeometry } from "./video-framing-guides.js";
 
 // Placement is visual only. It never edits source frames, trimming, or synchronization.
 export function createVideoFramingController(editor) {
@@ -42,7 +42,7 @@ export function createVideoFramingController(editor) {
   function updateGuides() {
     const visible = dragMode && available();
     guides.update(visible, visible
-      ? compositionGeometry(canvas.width, canvas.height, state.width, state.height, state.style).videoFrame
+      ? framingGuideGeometry(canvas.width, canvas.height, state.style)
       : null);
   }
   function paint() {

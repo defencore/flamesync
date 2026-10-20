@@ -77,9 +77,18 @@
   stroke-dasharray: 7 4;
 }
 
+.framing-guide-panel-center {
+  stroke: #b4f3a3;
+  stroke-width: 2;
+}
+
 .framing-guide-shadows line {
   stroke: rgb(0 0 0 / 78%);
   stroke-width: 3;
+}
+
+.framing-guide-shadows .framing-guide-panel-center {
+  stroke-width: 4;
 }
 
 .panel-toolbar > div:first-child {

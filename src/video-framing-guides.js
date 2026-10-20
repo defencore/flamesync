@@ -1,4 +1,15 @@
+import { stackedTelemetryGeometry } from "./composition-layout.js";
+
 const namespace = "http://www.w3.org/2000/svg";
+
+export function framingGuideGeometry(width, height, style) {
+  const { body, cards, panel, scale } = stackedTelemetryGeometry(width, height, style);
+  const left = style.showDetails ? cards.x + cards.width : body.x;
+  return {
+    body: Object.fromEntries(Object.entries(body).map(([key, value]) => [key, value * scale])),
+    panelCenter: ((left + panel.x) / 2) * scale,
+  };
+}
 
 // A separate SVG follows the canvas's contain-fit scaling, including fullscreen.
 // These editing guides never enter the composition canvas or export settings.
@@ -22,8 +33,7 @@ export function createVideoFramingGuides(canvas, stage) {
   definitions.append(clip);
   for (const group of [shadows, grid]) group.setAttribute("clip-path", `url(#${clip.id})`);
   const lines = [];
-  for (const axis of ["x", "y"]) for (let step = 1; step < 10; step++) {
-    const kind = step === 5 ? `center-${axis}` : axis === "y" && step === 8 ? "base" : "grid";
+  function addLine(kind, axis, fraction = 0) {
     const line = document.createElementNS(namespace, "line");
     line.setAttribute("data-guide", kind);
     line.classList.add(`framing-guide-${kind}`);
@@ -32,23 +42,27 @@ export function createVideoFramingGuides(canvas, stage) {
     shadow.removeAttribute("data-guide");
     shadows.append(shadow);
     grid.append(line);
-    lines.push({ line, shadow, axis, fraction: step / 10 });
+    lines.push({ line, shadow, kind, axis, fraction });
   }
+  for (const axis of ["x", "y"]) for (let step = 1; step < 10; step++)
+    addLine(step === 5 ? `center-${axis}` : axis === "y" && step === 8 ? "base" : "grid", axis, step / 10);
+  addLine("panel-center", "x");
   svg.append(definitions, shadows, grid);
   stage.append(svg);
   let geometryKey = "";
 
   return {
-    update(visible, body) {
+    update(visible, geometry) {
       svg.toggleAttribute("hidden", !visible);
       if (!visible) return;
-      const key = [canvas.width, canvas.height, body.x, body.y, body.width, body.height].join("/");
+      const { body, panelCenter } = geometry;
+      const key = [canvas.width, canvas.height, body.x, body.y, body.width, body.height, panelCenter].join("/");
       if (key === geometryKey) return;
       geometryKey = key;
       svg.setAttribute("viewBox", `0 0 ${canvas.width} ${canvas.height}`);
       for (const [attribute, value] of Object.entries(body)) clipRect.setAttribute(attribute, String(value));
-      for (const { line, shadow, axis, fraction } of lines) {
-        const x = body.x + body.width * fraction;
+      for (const { line, shadow, kind, axis, fraction } of lines) {
+        const x = kind === "panel-center" ? panelCenter : body.x + body.width * fraction;
         const y = body.y + body.height * fraction;
         const coordinates = axis === "x"
           ? { x1: x, x2: x, y1: body.y, y2: body.y + body.height }

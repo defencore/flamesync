@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Input, BufferSource, EncodedPacketSink, ALL_FORMATS } from "mediabunny";
-import { compositionGeometry } from "../src/composition-layout.js";
+import { compositionGeometry, stackedTelemetryGeometry } from "../src/composition-layout.js";
 import { defaultStyle, overlayGeometry } from "../src/overlay.js";
 
 function profile(name, { offset = 0, unit = "ms", rate = 50, thrust = 10, pressure = 2 } = {}) {
@@ -145,7 +145,12 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
         matrix: { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d, e: matrix.e, f: matrix.f },
         pointerEvents: getComputedStyle(svg).pointerEvents };
     });
-    const body = compositionGeometry(observed.width, observed.height, 960, 540, stackedStyle).videoFrame;
+    const showDetails = await page.locator("#show-details").isChecked();
+    const style = { ...stackedStyle, showDetails };
+    const body = compositionGeometry(observed.width, observed.height, 960, 540, style).videoFrame;
+    const layout = stackedTelemetryGeometry(observed.width, observed.height, style);
+    const freeLeft = showDetails ? (layout.cards.x + layout.cards.width) * layout.scale : body.x;
+    const panelCenter = (freeLeft + layout.panel.x * layout.scale) / 2;
     assert.deepEqual(observed.viewBox, [0, 0, observed.width, observed.height], `${context}: guides must share the output canvas coordinate system`);
     assert.equal(observed.pointerEvents, "none", `${context}: guides must never intercept placement gestures`);
     // SVG length baseVal uses float precision: 340.8 becomes 340.7999878.
@@ -154,11 +159,11 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       assert.ok(Math.abs(actual - expected) <= tolerance, `${context}: ${description}, ${actual} versus ${expected}`);
     const vertical = observed.lines.filter((line) => line.x1 === line.x2);
     const horizontal = observed.lines.filter((line) => line.y1 === line.y2);
-    assert.equal(vertical.length, 9, `${context}: ten-percent vertical subdivisions`);
+    assert.equal(vertical.length, 10, `${context}: ten-percent vertical subdivisions and the free-area center`);
     assert.equal(horizontal.length, 9, `${context}: ten-percent horizontal subdivisions`);
     for (let index = 1; index <= 9; index++) {
       const x = body.x + body.width * index / 10, y = body.y + body.height * index / 10;
-      const upright = vertical.find((line) => Math.abs(line.x1 - x) < 0.001);
+      const upright = vertical.find((line) => line.role !== "panel-center" && Math.abs(line.x1 - x) < 0.001);
       const across = horizontal.find((line) => Math.abs(line.y1 - y) < 0.001);
       assert.ok(upright && across, `${context}: both axes need the ${index * 10}% division`);
       near(Math.min(upright.y1, upright.y2), body.y, "vertical guide begins below the technical header");
@@ -168,13 +173,24 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       assert.equal(upright.role, index === 5 ? "center-x" : "grid");
       assert.equal(across.role, index === 5 ? "center-y" : index === 8 ? "base" : "grid");
     }
+    const freeCenter = vertical.find((line) => line.role === "panel-center");
+    assert.ok(freeCenter, `${context}: a separate guide must mark the space between the data and chart panels`);
+    assert.equal(vertical.filter((line) => line.role === "panel-center").length, 1,
+      `${context}: panel-gap center must appear exactly once`);
+    near(freeCenter.x1, panelCenter, "the free-area guide bisects the actual visible panel gap");
+    near(freeCenter.x2, panelCenter, "the free-area guide remains vertical");
+    near(freeCenter.y1, body.y, "the free-area guide starts below the technical header");
+    near(freeCenter.y2, body.y + body.height, "the free-area guide stops above filenames");
+    assert.notEqual(freeCenter.appearance, vertical.find((line) => line.role === "center-x").appearance,
+      `${context}: panel-gap center must be distinguishable from the full-frame center`);
     const minor = observed.lines.find((line) => line.role === "grid");
-    for (const role of ["center-x", "center-y", "base"])
+    for (const role of ["center-x", "center-y", "base", "panel-center"])
       assert.notEqual(observed.lines.find((line) => line.role === role).appearance, minor.appearance,
         `${context}: ${role} needs a visible emphasis beyond the subdivision grid`);
     const { matrix, content } = observed;
     for (const [x, y] of [[body.x, body.y], [body.x + body.width, body.y + body.height],
-      [body.x + body.width / 2, body.y + body.height / 2], [body.x + body.width / 2, body.y + body.height * 0.8]]) {
+      [body.x + body.width / 2, body.y + body.height / 2], [body.x + body.width / 2, body.y + body.height * 0.8],
+      [panelCenter, body.y + body.height / 2]]) {
       near(matrix.a * x + matrix.c * y + matrix.e, content.x + x * content.scale, "guide horizontal screen position follows contained footage", 1);
       near(matrix.b * x + matrix.d * y + matrix.f, content.y + y * content.scale, "guide vertical screen position follows contained footage", 1);
     }
@@ -499,13 +515,31 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
           content.x + (body.x + body.width / 2) * content.scale,
           content.y + (body.y + body.height / 2) * content.scale)?.id, desktop), "preview",
         "Pointer events at crossing guides must reach the video canvas");
+        assert.equal(await page.evaluate(({ body, content, lines }) => document.elementFromPoint(
+          content.x + lines.find((line) => line.role === "panel-center").x1 * content.scale,
+          content.y + (body.y + body.height / 2) * content.scale)?.id, desktop), "preview",
+        "The panel-gap center guide must not intercept video placement");
         await page.locator("#preview-stage").screenshot({ path: join(outputDir, "templates-framing-grid-desktop.png") });
+        await page.locator("#show-details").uncheck(); await frame();
+        const withoutDetails = await assertGuideGeometry("hidden data panels");
+        assert.notEqual(withoutDetails.lines.find((line) => line.role === "panel-center").x1,
+          desktop.lines.find((line) => line.role === "panel-center").x1,
+          "Hiding data panels must immediately recenter the guide in the newly open footage area");
+        const cleanWithoutDetails = await pixelDigest();
+        await button.click(); assert.equal(await pixelDigest(), cleanWithoutDetails,
+          "The free-area guide must not be baked into the composition when data cards are hidden");
+        await button.click(); await page.locator("#show-details").check(); await frame();
+        await assertGuideGeometry("restored data panels");
+        assert.equal(await pixelDigest(), clean, "Restoring data panels must preserve the clean output canvas");
         await page.setViewportSize({ width: 390, height: 844 }); await frame();
         await assertGuideGeometry("mobile CSS resize");
         assert.equal(await pixelDigest(), clean, "Responsive guide positioning must not alter the output canvas");
         await page.locator("#preview-stage").screenshot({ path: join(outputDir, "templates-framing-grid-mobile.png") });
         await select("frame-aspect", "portrait"); await assertGuideGeometry("portrait output");
         await page.locator("#preview-stage").screenshot({ path: join(outputDir, "templates-framing-grid-portrait.png") });
+        await page.locator("#show-details").uncheck(); await frame();
+        await assertGuideGeometry("portrait output without data panels");
+        await page.locator("#show-details").check(); await frame();
         await select("frame-aspect", "landscape");
         await page.setViewportSize({ width: 1440, height: 1050 }); await frame();
         await assertGuideGeometry("restored landscape");
@@ -547,6 +581,7 @@ export async function verifyTemplates({ browser, baseURL, outputDir }) {
       } finally {
         await page.mouse.up();
         await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined);
+        await page.locator("#show-details").check();
         if (await page.locator("#frame-aspect").inputValue() !== "landscape") await select("frame-aspect", "landscape");
         await page.setViewportSize({ width: 1440, height: 1050 });
         if (await button.getAttribute("aria-pressed") === "true") await button.click();
