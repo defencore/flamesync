@@ -255,7 +255,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
       notice(statusError, "error");
     }
   }
-  $("theory-add").onclick = () => $("theory-input").click();
+  $("theory-add").onclick = () => { forceNextImport = false; $("theory-input").click(); };
   $("theory-columns").onclick = () => {
     if (loading) return;
     if (file) configureSource(file, { force: true });
@@ -263,10 +263,12 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   };
   $("theory-input").onchange = (event) => {
     const candidateFile = event.target.files[0];
-    event.target.value = "";
-    if (candidateFile) configureSource(candidateFile, { replacement: true, force: forceNextImport });
+    const force = forceNextImport;
     forceNextImport = false;
+    event.target.value = "";
+    if (candidateFile) configureSource(candidateFile, { replacement: true, force });
   };
+  $("theory-input").addEventListener("cancel", () => { forceNextImport = false; });
   $("theory-remove").onclick = () => {
     ++revision;
     stopWorker();

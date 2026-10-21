@@ -171,6 +171,7 @@ export function createSourceController(editor) {
     if (state.csvFile) loadCSV(state.csvFile, { settings: state.csvSettings, force: true, preserveSync: true });
     else { forceNextCSV = true; $("csv-input").click(); }
   };
+  $("csv-input").addEventListener("cancel", () => { forceNextCSV = false; });
 
   async function loadVideo(file) {
     const version = ++videoVersion;
@@ -286,8 +287,10 @@ export function createSourceController(editor) {
   ]) {
     $(`${kind}-input`).addEventListener("change", (event) => {
       const file = event.target.files[0];
+      const force = kind === "csv" && forceNextCSV;
+      if (kind === "csv") forceNextCSV = false;
       if (file) {
-        if (kind === "csv") { loadCSV(file, { force: forceNextCSV }); forceNextCSV = false; }
+        if (kind === "csv") loadCSV(file, { force });
         else loader(file);
       }
       event.target.value = "";

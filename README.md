@@ -86,6 +86,8 @@ The same geometry and renderer are used by preview and export. Metadata wrapping
 
 ## CSV contract
 
+The standard format below remains the default and imports directly, without column setup. Source and display units default to **kgf + bar**.
+
 ```csv
 time_ms;thrust;pressure
 0;0.4;0.0
@@ -97,7 +99,7 @@ Semicolon, comma, and tab delimiters are supported. Semicolon or tab separated f
 
 ### Custom columns and independent sensor clocks
 
-Unknown column layouts open **CSV columns** automatically. Use **Columns…** beside the video log, theoretical source, or profile to review or change an existing mapping. The preview shows original physical line numbers and the first five rows. Column choices use physical indices, so duplicate names remain distinguishable. Turn off **First row contains column names** for headerless files; the first reading is then retained.
+Unknown column layouts open **Custom CSV columns** automatically. Standard files use their recognized time, thrust, and pressure columns; use **Custom columns…** beside the video log, theoretical source, or profile only when another mapping is needed. The mapping belongs to that file and is not saved as a global import default. The preview shows original physical line numbers and the first five rows. Column choices use physical indices, so duplicate names remain distinguishable. Turn off **First row contains column names** for headerless files; the first reading is then retained.
 
 Choose a thrust time/value pair and an optional pressure time/value pair. Pressure may share the thrust clock or use another column and another time unit. Each channel keeps its native timestamps, readings, rows, gaps, and acquisition rate; pressure is never resampled onto the thrust clock for statistics or noise. Absolute timestamps remain unchanged and both clocks must refer to the same time origin. Missing pressure displays as unavailable rather than zero. **Allow empty samples** treats blank selected values as no new reading for that channel, while any recorded value still requires a valid timestamp. Long missing intervals are never interpolated. The full chart includes both source ranges; A/B validation and synchronization remain tied to the thrust clock.
 

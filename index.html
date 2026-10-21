@@ -184,7 +184,7 @@
         <summary><span data-i18n="Theoretical profile · optional CSV">Theoretical profile · optional CSV</span><span id="theory-name" class="small muted"></span></summary>
         <div class="theory-body">
           <div class="theory-file-row"><button id="theory-add" class="button secondary" data-i18n="Add theoretical CSV">Add theoretical CSV</button><input id="theory-input" type="file" accept=".csv,.tsv,.txt,text/csv" hidden><label class="theory-toggle"><input id="theory-enabled" type="checkbox" checked><span data-i18n="Show theory">Show theory</span></label><button id="theory-remove" class="text-button" disabled data-i18n="Remove">Remove</button><button class="info-button" aria-label="About theoretical profiles" data-i18n-aria-label="About theoretical profiles" data-help="Load a calculation or simulation CSV with the same time, thrust, and pressure columns as a measured log. Source thrust defaults to kilogram-force (kgf, often written kg); pressure defaults to bar. Theory is shared by all workspaces and never counts as a measured test. Analysis uses its selected profile alignment; the timing controls below apply to video only. Original impulse and duration are never changed by display alignment." data-i18n-data-help="Load a calculation or simulation CSV with the same time, thrust, and pressure columns as a measured log. Source thrust defaults to kilogram-force (kgf, often written kg); pressure defaults to bar. Theory is shared by all workspaces and never counts as a measured test. Analysis uses its selected profile alignment; the timing controls below apply to video only. Original impulse and duration are never changed by display alignment.">i</button></div>
-          <button id="theory-columns" type="button" class="text-button csv-columns-button" disabled data-i18n="Columns…">Columns…</button>
+          <button id="theory-columns" type="button" class="text-button csv-columns-button" disabled data-i18n="Custom columns…">Custom columns…</button>
           <div class="theory-input-grid">
             <label><span data-i18n="CSV time unit">CSV time unit</span><select id="theory-time-unit"><option value="auto" data-i18n="From header · ms / µs / s">From header · ms / µs / s</option><option value="ms">ms</option><option value="us">µs</option><option value="s">s</option></select></label>
             <label><span data-i18n="CSV thrust">CSV thrust</span><select id="theory-thrust-unit"><option>N</option><option>kN</option><option selected>kgf</option><option>gf</option><option>lbf</option></select></label>
@@ -449,7 +449,7 @@
                     <span>↗</span>
                   </button>
                 </div>
-                <button type="button" id="csv-columns" class="button secondary csv-columns-button" disabled data-i18n="Columns…">Columns…</button>
+                <button type="button" id="csv-columns" class="button secondary csv-columns-button" data-i18n="Custom columns…">Custom columns…</button>
                 <label class="field"
                   ><span data-i18n="CSV time unit">CSV time unit</span
                   ><select id="csv-time-unit">
@@ -2269,7 +2269,7 @@
               <p class="small muted" data-i18n="Applies to new files. Existing profiles have their own source units.">
                 Applies to new files. Existing profiles have their own source units.
               </p>
-              <button type="button" id="profiles-columns" class="text-button csv-columns-button" data-i18n="Columns…">Columns…</button>
+              <button type="button" id="profiles-columns" class="text-button csv-columns-button" data-i18n="Custom columns…">Custom columns…</button>
             </details>
             <div id="profiles-drop" class="profile-drop" tabindex="0" role="button" aria-label="Add CSV logs" data-i18n-aria-label="Add CSV logs">
               <strong data-i18n="Drop multiple CSV files here">
@@ -2680,7 +2680,7 @@
       <form id="csv-mapping-form" novalidate>
         <div class="csv-map-top">
           <div>
-            <h2 id="csv-map-title" data-i18n="CSV columns">CSV columns</h2>
+            <h2 id="csv-map-title" data-i18n="Custom CSV columns">Custom CSV columns</h2>
             <span id="csv-map-filename" class="small muted"></span>
           </div>
           <button id="csv-map-close" type="button" class="icon-button" aria-label="Close column setup" data-i18n-aria-label="Close column setup">×</button>

@@ -18,7 +18,8 @@ function custom(name = "PRIVATE-CUSTOM-LOG.csv", { offset = 0, header = true, ev
   ].join(";"));
   return file(name, [...(header ? [headers] : []), ...rows].join("\n"));
 }
-const standard = () => file("PRIVATE-STANDARD.csv", "time_ms;thrust;pressure\n0;0;0\n1000;10;2\n2000;10;2\n3000;0;0");
+const standard = (name = "PRIVATE-STANDARD.csv") => file(name, "time_ms;thrust;pressure\n0;0;0\n1000;10;2\n2000;10;2\n3000;0;0");
+const headerlessThree = (name) => file(name, "0;0;0\n1000;10;2\n2000;10;2\n3000;0;0");
 const closeTo = (actual, expected, message, tolerance = 1e-6) => assert.ok(Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance,
   `${message}: ${actual} should equal ${expected} ± ${tolerance}`);
 
@@ -45,11 +46,16 @@ export async function verifyCustomCSV({ browser, baseURL, outputDir }) {
     const input = page.locator(`#${id}`); await reveal(input);
     await input.selectOption(String(value)); await frame(page);
   };
-  const mapped = async (page, { pressure = "3", pressureTime = "2", mode = "active", header = true, thrustTime = "0", timeUnit = "ms" } = {}) => {
+  const chooseFiles = async (page, button) => {
+    await reveal(page.locator(`#${button}`));
+    const [picker] = await Promise.all([page.waitForEvent("filechooser"), page.locator(`#${button}`).click()]);
+    return picker;
+  };
+  const mapped = async (page, { thrust = "1", pressure = "3", pressureTime = "2", mode = "active", header = true, thrustTime = "0", timeUnit = "ms" } = {}) => {
     await page.locator("#csv-mapping-dialog").waitFor({ state: "visible" });
     await page.locator("#csv-map-header").setChecked(header);
     await select(page, "csv-map-thrust-time", thrustTime);
-    await select(page, "csv-map-thrust", "1");
+    await select(page, "csv-map-thrust", thrust);
     await select(page, "csv-map-time-unit", timeUnit);
     await select(page, "csv-map-thrust-unit", "kgf");
     await select(page, "csv-map-pressure", pressure);
@@ -170,6 +176,97 @@ export async function verifyCustomCSV({ browser, baseURL, outputDir }) {
     await mapped(page, { pressureTime: "" });
     await events(page, 1, 3);
     assert.equal((await lastData(page)).separateTime, false, "One selected clock can serve both channels");
+  });
+
+  await caseOf("standard video, theory, and analysis logs import directly after a headerless three-column custom source", async (page) => {
+    const options = { header: false, pressure: "2", pressureTime: "", mode: "none" };
+    await upload(page, headerlessThree("PRIVATE-HEADERLESS-VIDEO.csv"), options);
+    assert.equal((await lastData(page)).hasHeader, false);
+    await page.locator("#csv-input").setInputFiles(standard("PRIVATE-STANDARD-AFTER-CUSTOM.csv"));
+    await page.waitForFunction(() => document.querySelector("#csv-filename").textContent === "PRIVATE-STANDARD-AFTER-CUSTOM.csv" &&
+      !document.querySelector("#clear-settings").disabled);
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false);
+    const measured = await lastData(page);
+    assert.equal(measured.hasHeader, true); assert.equal(measured.points[0].line, 2);
+    closeTo(measured.points[1].thrust, 98.0665, "The normal video log uses its thrust header");
+    assert.equal(measured.peakPressure, 2);
+    await page.locator("#theory-input").setInputFiles(headerlessThree("PRIVATE-HEADERLESS-THEORY.csv"));
+    await mapped(page, options);
+    await page.locator("#theory-input").setInputFiles(standard("PRIVATE-STANDARD-THEORY.csv"));
+    await page.waitForFunction(() => document.querySelector("#theory-name").textContent === "PRIVATE-STANDARD-THEORY.csv" &&
+      document.querySelector("#theory-panel").getAttribute("aria-busy") !== "true");
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false);
+    const theory = await page.evaluate(() => [...window.__customWorkerMessages].reverse().find(({ data }) => data.result?.data?.points)?.data.result.data);
+    assert.equal(theory.hasHeader, true); assert.equal(theory.points[0].line, 2);
+    closeTo(theory.points[1].thrust, 98.0665, "The normal theoretical log uses its thrust header");
+    assert.equal(theory.peakPressure, 2);
+    await page.locator("#mode-analysis").click();
+    await page.locator("#profiles-input").setInputFiles(headerlessThree("PRIVATE-HEADERLESS-PROFILE.csv")); await mapped(page, options);
+    await page.locator("#profiles-input").setInputFiles(standard("PRIVATE-STANDARD-PROFILE.csv"));
+    await page.waitForFunction(() => document.querySelectorAll("#profiles-list [data-profile-id]").length === 2 &&
+      document.querySelector("#profile-analysis").getAttribute("aria-busy") !== "true");
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false, "Standard headers take priority over the cached headerless three-column schema");
+    const id = await page.locator("#profiles-list [data-profile-id]").filter({ hasText: "PRIVATE-STANDARD-PROFILE.csv" }).getAttribute("data-profile-id");
+    const row = page.locator(`#profiles-table tr[data-profile-id="${id}"]`);
+    closeTo(Number(await row.locator('[data-stat="peakThrust"]').getAttribute("data-value")), 98.0665, "The normal profile uses standard thrust");
+    closeTo(Number(await row.locator('[data-stat="peakPressure"]').getAttribute("data-value")), 2, "The normal profile uses standard pressure");
+  });
+
+  await caseOf("normal standard imports override old manual mappings while an explicitly forced batch keeps its selected columns", async (page) => {
+    await page.locator("#mode-analysis").click();
+    await page.locator("#profiles-input").setInputFiles(standard("PRIVATE-MANUALLY-SWAPPED.csv")); await settle(page);
+    const first = page.locator("#profiles-list [data-profile-id]").first();
+    await first.locator('[data-action="columns"]').click();
+    await mapped(page, { thrust: "2", pressure: "1", pressureTime: "", mode: "none" });
+    const firstId = await first.getAttribute("data-profile-id");
+    closeTo(Number(await page.locator(`#profiles-table tr[data-profile-id="${firstId}"] [data-stat="peakThrust"]`).getAttribute("data-value")), 19.6133, "The deliberately remapped profile keeps the selected pressure column as thrust");
+    await page.locator("#profiles-input").setInputFiles(standard("PRIVATE-LATER-NORMAL.csv"));
+    await page.waitForFunction(() => document.querySelectorAll("#profiles-list [data-profile-id]").length === 2 &&
+      document.querySelector("#profile-analysis").getAttribute("aria-busy") !== "true");
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false);
+    const normalId = await page.locator("#profiles-list [data-profile-id]").filter({ hasText: "PRIVATE-LATER-NORMAL.csv" }).getAttribute("data-profile-id");
+    closeTo(Number(await page.locator(`#profiles-table tr[data-profile-id="${normalId}"] [data-stat="peakThrust"]`).getAttribute("data-value")), 98.0665, "A later normal import uses standard headers despite the earlier manual template");
+    closeTo(Number(await page.locator(`#profiles-table tr[data-profile-id="${normalId}"] [data-stat="peakPressure"]`).getAttribute("data-value")), 2, "A later normal import restores the pressure header");
+    await page.locator("#profiles-clear").click(); await settle(page);
+    const picker = await chooseFiles(page, "profiles-columns");
+    await picker.setFiles([standard("PRIVATE-FORCED-BATCH-A.csv"), standard("PRIVATE-FORCED-BATCH-B.csv")]);
+    await mapped(page, { thrust: "2", pressure: "1", pressureTime: "", mode: "none" });
+    await page.waitForFunction(() => document.querySelectorAll("#profiles-list [data-profile-id]").length === 2 &&
+      document.querySelector("#profile-analysis").getAttribute("aria-busy") !== "true");
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false, "One deliberate batch setup applies to matching files");
+    for (const card of await page.locator("#profiles-list [data-profile-id]").all()) {
+      const id = await card.getAttribute("data-profile-id");
+      closeTo(Number(await page.locator(`#profiles-table tr[data-profile-id="${id}"] [data-stat="peakThrust"]`).getAttribute("data-value")), 19.6133, "Every explicitly forced batch member keeps the selected thrust column");
+      closeTo(Number(await page.locator(`#profiles-table tr[data-profile-id="${id}"] [data-stat="peakPressure"]`).getAttribute("data-value")), 10, "Every explicitly forced batch member keeps the selected pressure column");
+    }
+    await page.locator("#profiles-input").setInputFiles(standard("PRIVATE-NORMAL-AFTER-FORCED-BATCH.csv"));
+    await page.waitForFunction(() => document.querySelectorAll("#profiles-list [data-profile-id]").length === 3 &&
+      document.querySelector("#profile-analysis").getAttribute("aria-busy") !== "true");
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false);
+    const afterId = await page.locator("#profiles-list [data-profile-id]").filter({ hasText: "PRIVATE-NORMAL-AFTER-FORCED-BATCH.csv" }).getAttribute("data-profile-id");
+    closeTo(Number(await page.locator(`#profiles-table tr[data-profile-id="${afterId}"] [data-stat="peakThrust"]`).getAttribute("data-value")), 98.0665, "The explicit batch override does not leak into a later normal import");
+  });
+
+  await caseOf("canceling a custom file picker does not force a later normal import in any workspace", async (page) => {
+    for (const [button, input, name] of [
+      ["csv-columns", "csv-input", "PRIVATE-CANCELED-PICKER-VIDEO.csv"],
+      ["theory-columns", "theory-input", "PRIVATE-CANCELED-PICKER-THEORY.csv"],
+      ["profiles-columns", "profiles-input", "PRIVATE-CANCELED-PICKER-PROFILE.csv"],
+    ]) {
+      if (input === "profiles-input") await page.locator("#mode-analysis").click();
+      await chooseFiles(page, button);
+      // Native file pickers emit cancel on dismissal; Playwright exposes the
+      // chooser event but has no native dismissal API for a headless picker.
+      await page.locator(`#${input}`).dispatchEvent("cancel"); await frame(page);
+      await page.locator(`#${input}`).setInputFiles(standard(name));
+      await page.waitForFunction(({ input, name }) => {
+        const ready = input === "csv-input" ? document.querySelector("#csv-filename").textContent === name
+          : input === "theory-input" ? document.querySelector("#theory-name").textContent === name
+            : [...document.querySelectorAll("#profiles-list .profile-name")].some((node) => node.textContent === name);
+        return ready && !document.querySelector("#clear-settings").disabled;
+      }, { input, name });
+      assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false, `${input} must retain the standard import after a canceled custom picker`);
+    }
   });
 
   await caseOf("independent millisecond and microsecond clocks retain pressure spikes, physical rows, and explicit event flags", async (page) => {
@@ -377,7 +474,7 @@ export async function verifyCustomCSV({ browser, baseURL, outputDir }) {
         const overlapY = Math.min(first.y + first.height, other.y + other.height) - Math.max(first.y, other.y);
         assert.ok(overlapX <= 1 || overlapY <= 1, `${language} controls overlap: ${first.id}, ${other.id}`);
       }
-      assert.equal(await page.locator("#csv-map-title").textContent(), language === "uk" ? "Стовпчики CSV" : "CSV columns");
+      assert.equal(await page.locator("#csv-map-title").textContent(), language === "uk" ? "Кастомні стовпчики CSV" : "Custom CSV columns");
       await page.screenshot({ path: join(outputDir, `custom-csv-mobile-${language}.png`), fullPage: false });
       await page.keyboard.press("Escape"); await dialog.waitFor({ state: "hidden" }); await settle(page);
       assert.equal(await page.locator("#clear-settings").isEnabled(), true, "Cancel must restore the workspace controls");

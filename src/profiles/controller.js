@@ -13,7 +13,7 @@ import { DEFAULT_CSV_SETTINGS } from "../units.js";
 import { profileMapping } from "./model.js";
 import { renderTheoryComparison } from "./theory-view.js";
 import { configureCSV } from "../csv-mapping.js";
-import { inspectCSV } from "../csv-format.js";
+import { inspectCSV, csvNumber } from "../csv-format.js";
 
 const COLORS = ["#2b61a5", "#bd6530", "#268477", "#885eae", "#b34c73", "#747c21", "#216e91", "#a45245", "#67718f", "#658638", "#a47b21", "#8e5586"];
 const own = (object, key) => Object.hasOwn(object, key);
@@ -278,8 +278,8 @@ export function createProfileWorkspace() {
     card.querySelector(".profile-name").textContent = record.name;
     card.querySelector(".profile-name").title = record.name;
     for (const key of ["timeUnit", "thrustUnit", "pressureUnit"]) field(record, key).value = record.settings[key];
-    const columns = textNode("button", t("Columns…"), "text-button");
-    columns.type = "button"; columns.dataset.action = "columns"; columns.dataset.i18n = "Columns…";
+    const columns = textNode("button", t("Custom columns…"), "text-button");
+    columns.type = "button"; columns.dataset.action = "columns"; columns.dataset.i18n = "Custom columns…";
     card.querySelector(".profile-card-tools").append(columns);
     card.addEventListener("focusin", () => { if (selected !== record.id) { selected = record.id; draw(); } });
     card.addEventListener("click", (event) => {
@@ -341,23 +341,38 @@ export function createProfileWorkspace() {
     cancelPick(); setField(record, event, field(record, event));
   }
   function cancelPick() { pick = null; $("profiles-pick-status").hidden = true; draw(); }
-  async function schemaFor(file, hasHeader) {
+  async function inspectProfile(file, hasHeader) {
     let cached = schemaCache.get(file);
     if (!cached) { cached = new Map(); schemaCache.set(file, cached); }
     if (!cached.has(hasHeader)) {
       const inspected = inspectCSV(await file.slice(0, 128 * 1024).text(), { hasHeader });
-      cached.set(hasHeader, JSON.stringify([hasHeader, inspected.delimiter, inspected.headers]));
+      cached.set(hasHeader, { ...inspected, schema: JSON.stringify([hasHeader, inspected.delimiter, inspected.headers]) });
     }
     return cached.get(hasHeader);
   }
   async function rememberMapping(file, settings, templates = mappingTemplates) {
-    if (settings.columns) templates.set(await schemaFor(file, settings.hasHeader !== false), { ...settings, columns: { ...settings.columns } });
+    if (!settings.columns) return;
+    const inspected = await inspectProfile(file, settings.hasHeader !== false);
+    // Headerless layouts and deliberate standard overrides belong to their selected batch.
+    if (templates === mappingTemplates && (settings.hasHeader === false || inspected.automatic)) return;
+    templates.set(inspected.schema, { ...settings, columns: { ...settings.columns } });
   }
-  async function configureProfile(file, defaults, templates, force = false) {
+  async function configureProfile(file, defaults, templates, force = false, customBatch = false) {
     if (!force && !defaults.columns) {
+      const standard = await inspectProfile(file, true);
+      if (standard.automatic && !customBatch) return configureCSV(file, defaults);
       for (const [schema, settings] of templates) {
-        if (await schemaFor(file, settings.hasHeader !== false) === schema)
-          return { ...settings, columns: { ...settings.columns } };
+        const inspected = await inspectProfile(file, settings.hasHeader !== false);
+        if (inspected.schema !== schema) continue;
+        if (settings.hasHeader === false) {
+          const columns = settings.columns;
+          const selected = [columns.thrustTime, columns.thrust,
+            ...(columns.pressure === null ? [] : [columns.pressureTime ?? columns.thrustTime, columns.pressure])];
+          const first = inspected.rows[0]?.values;
+          if (!first || !selected.some((index) => first[index] !== "") ||
+            !selected.every((index) => first[index] === "" || Number.isFinite(csvNumber(first[index], inspected.delimiter)))) continue;
+        }
+        return { ...settings, columns: { ...settings.columns } };
       }
     }
     return configureCSV(file, defaults, { force });
@@ -411,7 +426,7 @@ export function createProfileWorkspace() {
       for (const entry of accepted) {
         if (disposed || epoch !== sourceEpoch) return;
         try {
-          const settings = await configureProfile(entry.file, entry.settings, templates, force && configured.length === 0);
+          const settings = await configureProfile(entry.file, entry.settings, templates, force && configured.length === 0, force);
           if (disposed || epoch !== sourceEpoch) return;
           if (!settings) break;
           entry.settings = settings; configured.push(entry);
@@ -454,7 +469,7 @@ export function createProfileWorkspace() {
     } catch { /* A cleared workspace cancels pending readouts. */ }
     finally { hoverPending = false; if (version !== hoverRevision && crosshair !== null && !disposed) sampleHover(); }
   }
-  $("profiles-add").onclick = () => $("profiles-input").click();
+  $("profiles-add").onclick = () => { forceNextImport = false; $("profiles-input").click(); };
   $("profiles-columns").onclick = () => {
     if (busy) return;
     const record = records.find((item) => item.id === selected) ?? currentReference();
@@ -462,8 +477,12 @@ export function createProfileWorkspace() {
     else { forceNextImport = true; $("profiles-input").click(); }
   };
   $("profiles-input").onchange = (event) => {
-    importFiles([...event.target.files], null, { force: forceNextImport }); forceNextImport = false; event.target.value = "";
+    const files = [...event.target.files], force = forceNextImport;
+    forceNextImport = false;
+    event.target.value = "";
+    if (files.length) importFiles(files, null, { force });
   };
+  $("profiles-input").addEventListener("cancel", () => { forceNextImport = false; });
   $("profiles-demo").onclick = () => importFiles(isSeries() ? seriesExamples() : profileExamples(), DEFAULT_CSV_SETTINGS);
   $("profiles-mode").onchange = () => { view = null; cancelPick(); update(); operation(analyze); };
   $("series-folder").onclick = () => $("series-folder-input").click();
@@ -479,7 +498,7 @@ export function createProfileWorkspace() {
     $("profiles-list").replaceChildren(); cancelPick(); notice(null); update();
   };
   const drop = $("profiles-drop");
-  drop.onclick = () => $("profiles-input").click();
+  drop.onclick = () => { forceNextImport = false; $("profiles-input").click(); };
   drop.onkeydown = (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); drop.click(); } };
   drop.ondragover = (event) => { event.preventDefault(); drop.classList.add("dragover"); };
   drop.ondragleave = () => drop.classList.remove("dragover");

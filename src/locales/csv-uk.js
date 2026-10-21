@@ -1,8 +1,8 @@
 export const csvUk = {
   "Line {value0}: malformed quoted CSV field.": "Рядок {value0}: некоректні лапки в полі CSV.",
   "T: {thrust} · P: {pressure}": "Т: {thrust} · P: {pressure}",
-  "Columns…": "Стовпчики…",
-  "CSV columns": "Стовпчики CSV",
+  "Custom columns…": "Кастомні стовпчики…",
+  "Custom CSV columns": "Кастомні стовпчики CSV",
   "Close column setup": "Закрити вибір стовпчиків",
   "First row contains column names": "Перший рядок містить назви стовпчиків",
   "Allow empty samples": "Дозволити порожні відліки",
