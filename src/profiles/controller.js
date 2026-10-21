@@ -3,7 +3,7 @@ import { t, renderMessage } from "../i18n.js";
 import { errorMessage, message } from "../messages.js";
 import { preciseSeconds } from "../data.js";
 import { displayThrust, displayPressure } from "../units.js";
-import { createProfileWorker } from "./worker-client.js";
+import { createWorkerClient } from "../worker-client.js";
 import { createProfileChart } from "./chart.js";
 import { renderResults, exportResults, number } from "./results.js";
 import { profileExamples, seriesExamples } from "./examples.js";
@@ -13,7 +13,8 @@ import { DEFAULT_CSV_SETTINGS } from "../units.js";
 import { profileMapping } from "./model.js";
 import { renderTheoryComparison } from "./theory-view.js";
 import { configureCSV } from "../csv-mapping.js";
-import { inspectCSV, csvNumber } from "../csv-format.js";
+import { createProfileCSVImports } from "./csv-import.js";
+import { csvEventIdentity } from "../csv-import-policy.js";
 
 const COLORS = ["#2b61a5", "#bd6530", "#268477", "#885eae", "#b34c73", "#747c21", "#216e91", "#a45245", "#67718f", "#658638", "#a47b21", "#8e5586"];
 const own = (object, key) => Object.hasOwn(object, key);
@@ -25,15 +26,11 @@ const textNode = (tag, text, className) => {
   if (className) node.className = className;
   return node;
 };
-const eventIdentity = (settings) => JSON.stringify([
-  settings.timeUnit, settings.hasHeader, settings.allowSparse,
-  ...["thrustTime", "thrust", "markerMode", "active", "start", "end"].map((key) => settings.columns?.[key]),
-]);
 const importUnits = () => ({ timeUnit: $("profiles-source-time").value,
   thrustUnit: $("profiles-source-thrust").value, pressureUnit: $("profiles-source-pressure").value });
 
 export function createProfileWorkspace() {
-  const worker = createProfileWorker(), records = [];
+  const worker = createWorkerClient(() => new Worker(new URL("./worker.js", import.meta.url), { type: "module" })), records = [];
   let reference = "", selected = "", sequence = 0, revision = 0, busy = 0,
     threshold = $("profiles-threshold").valueAsNumber,
     noiseWindow = $("profiles-noise-window").valueAsNumber / 1000,
@@ -42,8 +39,8 @@ export function createProfileWorkspace() {
     pendingCount = 0, pendingBytes = 0, seriesResult = null,
     theoryState = null, workerTheoryData = null, workerTheoryStats = null, theoryCurves = null, importSequence = 0,
     lastBusy = false, forceNextImport = false, sourceEpoch = 0;
-  const mappingTemplates = new Map();
-  const schemaCache = new WeakMap();
+  const csvImports = createProfileCSVImports(configureCSV);
+  let sourceConfiguration = new AbortController();
   const panel = $("profile-analysis");
   const comparisonHelp = $("profiles-difference-help").getAttribute("data-i18n-data-help");
   const metric = () => $("profiles-metric").value;
@@ -341,42 +338,6 @@ export function createProfileWorkspace() {
     cancelPick(); setField(record, event, field(record, event));
   }
   function cancelPick() { pick = null; $("profiles-pick-status").hidden = true; draw(); }
-  async function inspectProfile(file, hasHeader) {
-    let cached = schemaCache.get(file);
-    if (!cached) { cached = new Map(); schemaCache.set(file, cached); }
-    if (!cached.has(hasHeader)) {
-      const inspected = inspectCSV(await file.slice(0, 128 * 1024).text(), { hasHeader });
-      cached.set(hasHeader, { ...inspected, schema: JSON.stringify([hasHeader, inspected.delimiter, inspected.headers]) });
-    }
-    return cached.get(hasHeader);
-  }
-  async function rememberMapping(file, settings, templates = mappingTemplates) {
-    if (!settings.columns) return;
-    const inspected = await inspectProfile(file, settings.hasHeader !== false);
-    // Headerless layouts and deliberate standard overrides belong to their selected batch.
-    if (templates === mappingTemplates && (settings.hasHeader === false || inspected.automatic)) return;
-    templates.set(inspected.schema, { ...settings, columns: { ...settings.columns } });
-  }
-  async function configureProfile(file, defaults, templates, force = false, customBatch = false) {
-    if (!force && !defaults.columns) {
-      const standard = await inspectProfile(file, true);
-      if (standard.automatic && !customBatch) return configureCSV(file, defaults);
-      for (const [schema, settings] of templates) {
-        const inspected = await inspectProfile(file, settings.hasHeader !== false);
-        if (inspected.schema !== schema) continue;
-        if (settings.hasHeader === false) {
-          const columns = settings.columns;
-          const selected = [columns.thrustTime, columns.thrust,
-            ...(columns.pressure === null ? [] : [columns.pressureTime ?? columns.thrustTime, columns.pressure])];
-          const first = inspected.rows[0]?.values;
-          if (!first || !selected.some((index) => first[index] !== "") ||
-            !selected.every((index) => first[index] === "" || Number.isFinite(csvNumber(first[index], inspected.delimiter)))) continue;
-        }
-        return { ...settings, columns: { ...settings.columns } };
-      }
-    }
-    return configureCSV(file, defaults, { force });
-  }
   async function replaceRecord(record, settings) {
     if (!records.includes(record) || disposed) return;
     const version = (record.importVersion ?? 0) + 1;
@@ -391,18 +352,18 @@ export function createProfileWorkspace() {
     Object.assign(record, result.records[0]);
     record.settings = { ...settings, columns: settings.columns ? { ...settings.columns } : undefined };
     for (const key of ["timeUnit", "thrustUnit", "pressureUnit"]) field(record, key).value = settings[key];
-    if (eventIdentity(previous) !== eventIdentity(settings)) {
+    if (csvEventIdentity(previous) !== csvEventIdentity(settings)) {
       for (const key of ["start", "end", "noiseStart", "noiseEnd"]) {
         delete record.options[key]; record.invalid.delete(key);
         field(record, key).value = ""; field(record, key).removeAttribute("aria-invalid");
       }
     }
-    await rememberMapping(record.file, settings);
+    await csvImports.remember(record.file, settings);
     view = null; cancelPick(); await analyze();
   }
   async function remapRecord(record) {
     const epoch = sourceEpoch;
-    const settings = await configureCSV(record.file, record.settings, { force: true });
+    const settings = await configureCSV(record.file, record.settings, { force: true, signal: sourceConfiguration.signal });
     if (!settings || disposed || epoch !== sourceEpoch || !records.includes(record)) return;
     await replaceRecord(record, settings);
   }
@@ -422,15 +383,15 @@ export function createProfileWorkspace() {
     const bytes = accepted.reduce((sum, entry) => sum + entry.file.size, 0);
     pendingBytes += bytes;
     await operation(async () => {
-      const configured = [], templates = settingsOverride ? new Map() : new Map(mappingTemplates);
+      const configured = [], batch = csvImports.batch({ isolated: Boolean(settingsOverride), custom: force });
       for (const entry of accepted) {
         if (disposed || epoch !== sourceEpoch) return;
         try {
-          const settings = await configureProfile(entry.file, entry.settings, templates, force && configured.length === 0, force);
+          const settings = await batch.configure(entry.file, entry.settings, { force: force && configured.length === 0, signal: sourceConfiguration.signal });
           if (disposed || epoch !== sourceEpoch) return;
           if (!settings) break;
           entry.settings = settings; configured.push(entry);
-          await rememberMapping(entry.file, settings, templates);
+          await batch.remember(entry.file, settings);
         } catch (error) { failures.push(fileError(entry.file.name, error.userMessage ?? errorMessage(error))); }
       }
       if (!configured.length) { if (failures.length) notice(failures, "error"); return; }
@@ -441,7 +402,7 @@ export function createProfileWorkspace() {
         const record = { ...item, file: source.file, settings: source.settings,
           color: records.length < COLORS.length ? COLORS[records.length] : `hsl(${(sequence * 137.508 + records.length * 51) % 360} 48% 40%)`, visible: true, included: true, options: {} };
         records.push(record); createCard(record);
-        if (!settingsOverride) await rememberMapping(source.file, source.settings);
+        if (!settingsOverride) await csvImports.remember(source.file, source.settings);
       }
       for (const error of result.errors) failures.push(fileError(error.name, error.error));
       view = null; update(); await analyze();
@@ -493,7 +454,8 @@ export function createProfileWorkspace() {
     event.target.value = "";
   };
   $("profiles-clear").onclick = () => {
-    revision++; importSequence++; sourceEpoch++; worker.dispose(); records.splice(0); reference = ""; selected = ""; view = null; seriesResult = null;
+    sourceConfiguration.abort(); sourceConfiguration = new AbortController();
+    revision++; importSequence++; sourceEpoch++; worker.reset(); records.splice(0); reference = ""; selected = ""; view = null; seriesResult = null;
     workerTheoryData = null; workerTheoryStats = null;
     $("profiles-list").replaceChildren(); cancelPick(); notice(null); update();
   };
@@ -507,7 +469,7 @@ export function createProfileWorkspace() {
   $("profiles-alignment").onchange = () => { view = null; cancelPick(); operation(analyze); };
   for (const id of ["profiles-metric", "profiles-trace", "profiles-thrust-unit", "profiles-pressure-unit"]) $(id).onchange = () => update();
   for (const id of ["profiles-source-time", "profiles-source-thrust", "profiles-source-pressure"])
-    $(id).addEventListener("change", () => mappingTemplates.clear());
+    $(id).addEventListener("change", () => csvImports.clear());
   function readAnalysisPreferences() {
     const nextThreshold = $("profiles-threshold").valueAsNumber, nextWindow = $("profiles-noise-window").valueAsNumber;
     if (!(nextThreshold >= .1 && nextThreshold <= 99.9 && nextWindow >= 1 && nextWindow <= 10000)) {
@@ -533,7 +495,7 @@ export function createProfileWorkspace() {
     isBusy: () => Boolean(busy || pendingCount),
     applyPreferences() {
       if (disposed || !readAnalysisPreferences()) return Promise.resolve();
-      mappingTemplates.clear();
+      csvImports.clear();
       view = crosshair = null;
       hoverRevision++;
       $("profiles-hover").replaceChildren();
@@ -542,6 +504,6 @@ export function createProfileWorkspace() {
       return operation(analyze);
     },
     setTheory(next) { const previous = theoryState; theoryState = next; if (previous?.data !== next.data || previous?.stats !== next.stats || previous?.enabled !== next.enabled || previous?.sourceValid !== next.sourceValid || previous?.loading !== next.loading) operation(analyze); else update(); },
-    dispose() { disposed = true; sourceEpoch++; worker.dispose(); chart.dispose(); pressureChart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); },
+    dispose() { disposed = true; sourceEpoch++; sourceConfiguration.abort(); worker.dispose(); chart.dispose(); pressureChart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); },
   };
 }

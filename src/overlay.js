@@ -5,6 +5,7 @@ import { overlayTimeDomain } from "./chart-domain.js";
 export { overlayTimeDomain } from "./chart-domain.js";
 import { textLines } from "./canvas-text.js";
 import { DEFAULT_VIDEO_FRAMING } from "./video-framing.js";
+import { valueAxis, axisFraction } from "./plot-axis.js";
 
 export const defaultStyle = {
   title: "STATIC FIRE TEST",
@@ -95,24 +96,12 @@ export function overlayGeometry(w, h, style) {
 // Rounded display-unit bounds produce useful axis labels without changing any
 // sensor values. Negative readings retain their own visible baseline.
 export function chartAxis(minimum, maximum) {
-  const low = Math.min(0, minimum);
-  const high = Math.max(0, maximum);
-  const span = high - low || 1;
-  const rough = (span * 1.06) / 2;
-  const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const step =
-    [1, 2, 2.5, 5, 10].find((value) => value * magnitude >= rough) * magnitude;
-  const min = Math.floor(low / step) * step;
-  const max = Math.max(min + step, Math.ceil(high * 1.06 / step) * step);
-  const ticks = Array.from(
-    { length: Math.round((max - min) / step) + 1 },
-    (_, index) => min + step * index,
-  );
-  return { min, max, ticks };
+  return valueAxis(minimum, maximum);
 }
 
 function axisLabel(value) {
   const magnitude = Math.abs(value);
+  if (magnitude >= 1e6) return value.toExponential(1);
   if (magnitude >= 10000) return `${Number((value / 1000).toPrecision(3))}k`;
   if (magnitude > 0 && magnitude < 0.001) return value.toExponential(1);
   return String(Number(value.toPrecision(4)));
@@ -223,7 +212,7 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
     const box = plots[key];
     const axis = axes[key];
     return box.y + box.height -
-      ((convert(value, key) - axis.min) / (axis.max - axis.min)) * box.height;
+      axisFraction(convert(value, key), axis) * box.height;
   };
   const colors = { thrust: thrustColor, pressure: pressureColor };
   for (const key of keys) {
@@ -235,7 +224,7 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
     ctx.lineWidth = 1;
     for (const tick of ticks) {
       const gy = box.y + box.height -
-        ((tick - axis.min) / (axis.max - axis.min)) * box.height;
+        axisFraction(tick, axis) * box.height;
       ctx.strokeStyle = grid;
       ctx.beginPath();
       ctx.moveTo(box.x, gy);

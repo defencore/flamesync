@@ -2,6 +2,7 @@ import { message } from "../messages.js";
 import { profileMapping } from "./model.js";
 import { signalPoints } from "../data.js";
 import { mergeSignalCurves } from "../signal-curves.js";
+import { finiteAnalysis, linearValue } from "../signal-math.js";
 
 export const SERIES_METRICS = [
   "duration", "impulse", "meanThrust", "peakThrust", "meanPressure", "peakPressure",
@@ -15,25 +16,37 @@ const finite = (value) => typeof value === "number" && Number.isFinite(value);
 function quantile(sorted, probability) {
   const position = (sorted.length - 1) * probability;
   const lower = Math.floor(position), fraction = position - lower;
-  return sorted[lower] + fraction * (sorted[Math.min(lower + 1, sorted.length - 1)] - sorted[lower]);
+  return linearValue(sorted[lower], sorted[Math.min(lower + 1, sorted.length - 1)], fraction);
 }
 
 function meanAndSd(values) {
   const n = values.length;
   if (!n) return { mean: null, sd: null };
-  // Center before summing to retain small variation on a large baseline.
+  // Center before compensated summation to retain small spread on a large
+  // baseline. Normalize only when opposite endpoints exceed the finite range.
   const origin = values[0];
+  const oppositeRange = values.some((value) => !Number.isFinite(value - origin));
+  const magnitude = values.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+  const scale = oppositeRange ? magnitude : 1;
   let sum = 0, compensation = 0;
   for (const value of values) {
-    const corrected = (value - origin) - compensation;
+    const difference = oppositeRange ? value / scale : value - origin;
+    const corrected = difference / n - compensation;
     const next = sum + corrected;
     compensation = (next - sum) - corrected;
     sum = next;
   }
-  const mean = origin + sum / n;
+  const mean = finiteAnalysis(oppositeRange ? sum * scale : origin + sum);
+  if (n === 1) return { mean, sd: null };
+  let largest = 0;
+  for (const value of values) largest = Math.max(largest, Math.abs(value - mean));
+  const divisor = Number.isFinite(largest) ? largest || 1 : magnitude;
   let squares = 0;
-  for (const value of values) squares += (value - mean) ** 2;
-  return { mean, sd: n > 1 ? Math.sqrt(squares / (n - 1)) : null };
+  for (const value of values) {
+    const delta = Number.isFinite(largest) ? (value - mean) / divisor : value / divisor - mean / divisor;
+    squares += delta * delta;
+  }
+  return { mean, sd: finiteAnalysis(divisor * Math.sqrt(squares / (n - 1))) };
 }
 
 function summarize(observations) {
@@ -45,18 +58,19 @@ function summarize(observations) {
   const relativeAvailable = finite(mean) && Math.abs(mean) > scale * 1e-12;
   let outlierIds = [];
   if (n >= 5) {
-    const q1 = quantile(sorted, 0.25), q3 = quantile(sorted, 0.75);
+    const divisor = scale || 1;
+    const q1 = quantile(sorted, 0.25) / divisor, q3 = quantile(sorted, 0.75) / divisor;
     const iqr = q3 - q1, lower = q1 - 1.5 * iqr, upper = q3 + 1.5 * iqr;
     // Repeated integrals at unequal sampling rates can differ by a few ulps.
     // Scale from the central fences so a very large extreme cannot hide a
     // smaller genuine deviation by inflating the roundoff allowance.
     const tolerance = 1e-12 * Math.max(Math.abs(q1), Math.abs(q3), Math.abs(lower), Math.abs(upper));
     // Flags invite review; they never remove a test from the population.
-    outlierIds = observations.filter(({ value }) => value < lower - tolerance || value > upper + tolerance).map(({ id }) => id);
+    outlierIds = observations.filter(({ value }) => value / divisor < lower - tolerance || value / divisor > upper + tolerance).map(({ id }) => id);
   }
   return {
     n, mean, sd,
-    cv: n > 1 && relativeAvailable ? 100 * sd / Math.abs(mean) : null,
+    cv: n > 1 && relativeAvailable ? finiteAnalysis((sd / Math.abs(mean)) * 100) : null,
     min: n ? sorted[0] : null, max: n ? sorted.at(-1) : null,
     median: n ? quantile(sorted, 0.5) : null,
     outlierIds,
@@ -133,7 +147,7 @@ function sample(cursor, x, key) {
   const a = points[cursor.sampleIndex], b = points[cursor.sampleIndex + 1];
   if (time === a.t) return a[key];
   if (!b || b.gapBefore || time < a.t || time > b.t) return null;
-  return a[key] + (b[key] - a[key]) * ((time - a.t) / (b.t - a.t));
+  return linearValue(a[key], b[key], (time - a.t) / (b.t - a.t));
 }
 
 function commonSignalCurve(entries, alignment, limit, key, start, end) {
@@ -248,10 +262,10 @@ export function analyseSeries(entries, options = {}) {
     metrics: Object.fromEntries(SERIES_METRICS.map((key) => {
       const value = finite(entry.stats[key]) ? entry.stats[key] : null;
       const summary = privateMetrics[key];
-      const delta = value === null || summary.mean === null ? null : value - summary.mean;
+      const delta = value === null || summary.mean === null ? null : finiteAnalysis(value - summary.mean);
       return [key, { value, delta,
-        percent: delta !== null && summary.relativeAvailable ? 100 * delta / Math.abs(summary.mean) : null,
-        z: delta !== null && finite(summary.sd) && summary.sd > 0 ? delta / summary.sd : null,
+        percent: delta !== null && summary.relativeAvailable ? finiteAnalysis((delta / Math.abs(summary.mean)) * 100) : null,
+        z: delta !== null && finite(summary.sd) && summary.sd > 0 ? finiteAnalysis(delta / summary.sd) : null,
         outlier: value !== null && summary.outlierIds.includes(entry.id),
       }];
     })),

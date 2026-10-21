@@ -276,3 +276,12 @@ test("conversion and integrated-value overflow cannot enter accepted telemetry",
   assert.throws(() => mapped("t;f;p_t;p\n0;0;0;0\n0.1;1e308;0.1;1", { thrustUnit: "kN" }), /numeric range/);
   assert.throws(() => mapped("t;f;p_t;p\n0;1e308;0;0\n2;1e308;2;1"), /numeric range/);
 });
+
+test("display-only joins also interpolate opposite finite extremes on independent native clocks", () => {
+  const data = mapped("t;f;p_t;p\n0;-1e308;0.25;-1e308\n1;1e308;0.75;1e308");
+  const joined = chartPoints(data);
+  near(joined.find(({ t }) => t === .25).thrust / -5e307, 1);
+  near(joined.find(({ t }) => t === .75).thrust / 5e307, 1);
+  assert.ok(joined.every(({ thrust, pressure }) =>
+    (thrust === null || Number.isFinite(thrust)) && (pressure === null || Number.isFinite(pressure))));
+});

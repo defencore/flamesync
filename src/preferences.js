@@ -234,6 +234,7 @@ export function createPreferencesController(editor) {
       schedule();
     },
     update,
+    flush,
     dispose() { flush(); listeners.abort(); },
   };
 }

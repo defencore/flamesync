@@ -2,14 +2,14 @@ import { detectBurnInterval } from "../measurement.js";
 import { signalPoints } from "../data.js";
 import { mergeSignalCurves, reduceSignal } from "../signal-curves.js";
 import { UserError, message } from "../messages.js";
-import { positiveArea } from "../signal-math.js";
+import { addWeightedMoments, finiteAnalysis, linearRms, linearValue, positiveArea } from "../signal-math.js";
 
 const CURVE_BUDGET = 2400;
 const GRAVITY = 9.80665;
 const NOISE_NOTE = "Noise is residual variation around a moving mean, including real combustion changes and measurement noise; it is not calibrated uncertainty.";
 
 function pointAt(a, b, time, key) {
-  return { t: time, [key]: a[key] + (b[key] - a[key]) * ((time - a.t) / (b.t - a.t)) };
+  return { t: time, [key]: linearValue(a[key], b[key], (time - a.t) / (b.t - a.t)) };
 }
 
 function boundedCurve(thrust, pressure, budget = CURVE_BUDGET) {
@@ -35,7 +35,7 @@ function validEvent(value, data) {
 }
 
 function selectedSignalStatistics(points, key, start, end) {
-  let peak = null, covered = 0, area = 0, positive = 0;
+  let peak = null, covered = 0, mean = 0, positive = 0;
   const includePeak = (point) => { peak = Math.max(peak ?? -Infinity, point[key]); };
   for (const point of points) if (point.t >= start && point.t <= end) includePeak(point);
   for (let i = 1; i < points.length; i++) {
@@ -45,12 +45,12 @@ function selectedSignalStatistics(points, key, start, end) {
     const first = pointAt(a, b, left, key), last = pointAt(a, b, right, key);
     const duration = right - left;
     covered += duration;
-    area += ((first[key] + last[key]) * duration) / 2;
-    positive += positiveArea(first[key], last[key], duration);
+    mean = linearValue(mean, linearValue(first[key], last[key], 0.5), duration / covered);
+    if (key === "thrust") positive = finiteAnalysis(positive + positiveArea(first[key], last[key], duration));
     includePeak(first); includePeak(last);
   }
   return { coverage: Math.min(1, covered / (end - start)), peak,
-    mean: covered > 0 ? area / covered : null, positive: covered > 0 ? positive : null };
+    mean: covered > 0 ? finiteAnalysis(mean) : null, positive: covered > 0 ? positive : null };
 }
 
 function selectedStatistics(data, start, end) {
@@ -68,12 +68,13 @@ function continuousBlocks(points, key) {
     if (i < points.length && !points[i].gapBefore) continue;
     if (i - start >= 2) {
       const block = points.slice(start, i);
+      const scale = block.reduce((largest, point) => Math.max(largest, Math.abs(point[key])), 0) || 1;
       const totals = new Float64Array(block.length);
       for (let j = 1; j < block.length; j++) {
         const dt = block[j].t - block[j - 1].t;
-        totals[j] = totals[j - 1] + ((block[j - 1][key] + block[j][key]) * dt) / 2;
+        totals[j] = totals[j - 1] + linearValue(block[j - 1][key] / scale, block[j][key] / scale, 0.5) * dt;
       }
-      blocks.push({ points: block, totals, affine: affineRuns(block, key) });
+      blocks.push({ points: block, scale, totals, affine: affineRuns(block, key) });
     }
     start = i;
   }
@@ -88,8 +89,10 @@ function continuousBlocks(points, key) {
 function affineRuns(points, key) {
   const runs = [];
   let start = 0, lower = -Infinity, upper = Infinity;
+  const scale = points.reduce((largest, point) => Math.max(largest, Math.abs(point[key])), 0);
+  const divisor = scale > 1e150 ? scale : 1;
   const bounds = (index) => {
-    const origin = points[start][key], value = points[index][key], delta = value - origin;
+    const origin = points[start][key] / divisor, value = points[index][key] / divisor, delta = value - origin;
     const tolerance = Number.EPSILON * 8 * Math.max(Math.abs(origin), Math.abs(value), Math.abs(delta));
     const dt = points[index].t - points[start].t;
     return [(delta - tolerance) / dt, (delta + tolerance) / dt];
@@ -129,15 +132,15 @@ function blockIntegral(block, time, key) {
   const a = points[index];
   const b = points[index + 1];
   if (!b) return block.totals[index];
-  const value = a[key] + ((b[key] - a[key]) * (time - a.t)) / (b.t - a.t);
-  return block.totals[index] + ((a[key] + value) * (time - a.t)) / 2;
+  const value = linearValue(a[key] / block.scale, b[key] / block.scale, (time - a.t) / (b.t - a.t));
+  return block.totals[index] + linearValue(a[key] / block.scale, value, 0.5) * (time - a.t);
 }
 
 function trendSample(block, time, window, key) {
   const raw = blockSample(block, time, key);
   const value = affineWindow(block, time, window) ? raw[key] :
-    (blockIntegral(block, time + window / 2, key) - blockIntegral(block, time - window / 2, key)) / window;
-  return { raw: raw[key], trend: { t: time, [key]: value }, residual: { t: time, [key]: raw[key] - value } };
+    ((blockIntegral(block, time + window / 2, key) - blockIntegral(block, time - window / 2, key)) / window) * block.scale;
+  return { raw: raw[key], trend: { t: time, [key]: finiteAnalysis(value) }, residual: { t: time, [key]: finiteAnalysis(raw[key] - value) } };
 }
 
 // A centered moving integral of a linear signal is quadratic between source
@@ -145,7 +148,7 @@ function trendSample(block, time, window, key) {
 // its squared residual exactly, avoiding sample-rate-dependent noise estimates.
 function signalNoiseAnalysis(points, key, window, start, end) {
   const trend = [], residual = [];
-  let squares = 0, mean = 0, duration = 0;
+  const moments = { weight: 0, mean: 0, rms: 0 };
   const nodes = [-Math.sqrt(3 / 5), 0, Math.sqrt(3 / 5)];
   const weights = [5 / 9, 8 / 9, 5 / 9];
   for (const block of continuousBlocks(points, key)) {
@@ -168,18 +171,16 @@ function signalNoiseAnalysis(points, key, window, start, end) {
       if (i === 0 || start === null || end === null) continue;
       const left = Math.max(start, unique[i - 1]), right = Math.min(end, unique[i]);
       if (right <= left) continue;
-      const half = (right - left) / 2, middle = (right + left) / 2;
-      duration += right - left;
+      const half = (right - left) / 2, middle = linearValue(left, right, 0.5);
       for (let j = 0; j < nodes.length; j++) {
         const value = trendSample(block, middle + nodes[j] * half, window, key);
-        squares += half * weights[j] * value.residual[key] ** 2;
-        mean += half * weights[j] * value.raw;
+        addWeightedMoments(moments, half * weights[j], value.raw, Math.abs(value.residual[key]));
       }
     }
   }
-  const rms = duration > 0 ? Math.sqrt(Math.max(0, squares / duration)) : null;
-  return { rms, percent: duration > 0 && Math.abs(mean) > Number.EPSILON * duration
-    ? rms * duration * 100 / Math.abs(mean) : null, trend, residual };
+  const rms = moments.weight > 0 ? finiteAnalysis(moments.rms) : null;
+  return { rms, percent: rms !== null && Math.abs(moments.mean) > Number.EPSILON
+    ? finiteAnalysis((rms / Math.abs(moments.mean)) * 100) : null, trend, residual };
 }
 
 function noiseAnalysis(data, window, start, end) {
@@ -228,7 +229,8 @@ export function analyseProfile(data, options = {}) {
     warnings.push(message("Noise cannot be estimated: no complete moving window lies inside the selected noise interval."));
   warnings.push(message(NOISE_NOTE));
   const specificImpulse = massKg !== null && statistics.impulse !== null && !hasMissingData && statistics.coverage >= 1 - 1e-10
-    ? statistics.impulse / (massKg * GRAVITY) : null;
+    ? finiteAnalysis(Number.isFinite(massKg * GRAVITY)
+      ? statistics.impulse / (massKg * GRAVITY) : (statistics.impulse / massKg) / GRAVITY) : null;
   const { trend, residual, ...noiseStatistics } = noise;
   return {
     start, end, ...statistics, ...noiseStatistics, noiseStart, noiseEnd,
@@ -246,8 +248,8 @@ export function profileMapping(profile, mode) {
     return Number.isFinite(profile.end) ? { offset: -profile.end, scale: 1 } : null;
   if (mode === "normalized") {
     if (!Number.isFinite(profile.start) || !Number.isFinite(profile.end) || profile.end <= profile.start) return null;
-    const scale = 100 / (profile.end - profile.start);
-    return { offset: -profile.start * scale, scale };
+    const scale = finiteAnalysis(100 / (profile.end - profile.start));
+    return { offset: finiteAnalysis(-profile.start * scale), scale };
   }
   throw new UserError("Unknown profile alignment mode.");
 }
@@ -258,7 +260,9 @@ function mappedSegments(points, mapping, key) {
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1], b = points[i];
     if (b.gapBefore) continue;
-    segments.push({ a: { t: offset + a.t * scale, [key]: a[key] }, b: { t: offset + b.t * scale, [key]: b[key] } });
+    const first = finiteAnalysis(offset + a.t * scale), last = finiteAnalysis(offset + b.t * scale);
+    if (!(last > first)) throw new UserError("The analysis exceeds the supported numeric range. Check the values, units, and timestamps.");
+    segments.push({ a: { t: first, [key]: a[key] }, b: { t: last, [key]: b[key] } });
   }
   return segments;
 }
@@ -267,9 +271,10 @@ function compareSignal(referenceData, referenceMapping, candidateData, candidate
   const reference = mappedSegments(signalPoints(referenceData, key), referenceMapping, key);
   const candidate = mappedSegments(signalPoints(candidateData, key), candidateMapping, key);
   const points = [];
-  let integral = 0, absolute = 0, squared = 0, maxAbs = 0, covered = 0, r = 0, c = 0, previousEnd = null;
+  const moments = { weight: 0, mean: 0, rms: 0 };
+  let meanAbsolute = 0, maxAbs = 0, covered = 0, r = 0, c = 0, previousEnd = null;
   const delta = (left, right, time) => ({ t: time,
-    [key]: pointAt(right.a, right.b, time, key)[key] - pointAt(left.a, left.b, time, key)[key] });
+    [key]: finiteAnalysis(pointAt(right.a, right.b, time, key)[key] - pointAt(left.a, left.b, time, key)[key]) });
   while (r < reference.length && c < candidate.length) {
     const left = reference[r], right = candidate[c];
     const start = Math.max(left.a.t, right.a.t, mappedStart), end = Math.min(left.b.t, right.b.t, mappedEnd);
@@ -277,9 +282,9 @@ function compareSignal(referenceData, referenceMapping, candidateData, candidate
       const first = delta(left, right, start), last = delta(left, right, end), duration = end - start;
       const a = first[key], b = last[key];
       covered += duration;
-      integral += ((a + b) * duration) / 2;
-      absolute += positiveArea(a, b, duration) + positiveArea(-a, -b, duration);
-      squared += ((a * a + a * b + b * b) * duration) / 3;
+      addWeightedMoments(moments, duration, linearValue(a, b, 0.5), linearRms(a, b));
+      const segmentAbsolute = positiveArea(a, b, 1) + positiveArea(-a, -b, 1);
+      meanAbsolute = linearValue(meanAbsolute, segmentAbsolute, duration / covered);
       maxAbs = Math.max(maxAbs, Math.abs(a), Math.abs(b));
       if (previousEnd !== start) points.push({ ...first, gapBefore: previousEnd !== null });
       points.push({ ...last, gapBefore: false });
@@ -289,8 +294,8 @@ function compareSignal(referenceData, referenceMapping, candidateData, candidate
     else c++;
   }
   return { points, covered, metrics: covered > 0 ? {
-    bias: integral / covered, mae: absolute / covered,
-    rmse: Math.sqrt(Math.max(0, squared / covered)), maxAbs,
+    bias: finiteAnalysis(moments.mean), mae: finiteAnalysis(meanAbsolute),
+    rmse: finiteAnalysis(moments.rms), maxAbs,
   } : { bias: null, mae: null, rmse: null, maxAbs: null } };
 }
 
@@ -311,6 +316,7 @@ export function compareProfiles(referenceData, referenceMapping, candidateData, 
     candidateMapping.offset + candidateData.end * candidateMapping.scale,
     options.end ?? Infinity,
   );
+  finiteAnalysis(mappedStart); finiteAnalysis(mappedEnd);
   if (!(mappedEnd > mappedStart)) return null;
   const thrust = compareSignal(referenceData, referenceMapping, candidateData, candidateMapping, "thrust", mappedStart, mappedEnd);
   const pressure = compareSignal(referenceData, referenceMapping, candidateData, candidateMapping, "pressure", mappedStart, mappedEnd);

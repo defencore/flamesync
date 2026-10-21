@@ -277,3 +277,24 @@ test("series curves preserve pressure-only extrema and separate channel coverage
   assert.ok(gapped.curve.points.some((point) => point.pressureGapBefore && !point.thrustGapBefore && point.t >= 1));
   assert.ok(gapped.curve.points.every((point) => point.thrust === 100));
 });
+
+test("series sample SD and quartiles remain finite when squaring the original values would overflow", () => {
+  const entries = [5e200, 1e201, 1e201, 1e201, 1e201].map((force, i) => profile(`large-${i}`, force, { duration: 1 }));
+  const result = analyseSeries(entries);
+  assert.ok(Math.abs(result.metrics.meanThrust.mean / 9e200 - 1) < 1e-14);
+  assert.ok(Math.abs(result.metrics.meanThrust.sd / (Math.sqrt(5) * 1e200) - 1) < 1e-14);
+  assert.equal(result.metrics.meanThrust.median, 1e201);
+  assert.deepEqual(result.metrics.meanThrust.outlierIds, ["large-0"]);
+  for (const point of result.curve.points) {
+    assert.ok(Number.isFinite(point.thrust));
+    assert.ok(Number.isFinite(point.thrustSd));
+  }
+});
+
+test("large signed series moments stay finite when raw squared deviations would overflow", () => {
+  const entries = [0, -1e308, -1e308, -1e308, -1e308, -1e308, 1e308]
+    .map((force, index) => profile(`mixed-${index}`, force, { duration: .1, rate: 100 }));
+  const result = analyseSeries(entries);
+  assert.ok(Number.isFinite(result.metrics.meanThrust.sd));
+  assert.ok(result.metrics.meanThrust.sd > 7e307);
+});

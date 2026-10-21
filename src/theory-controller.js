@@ -3,6 +3,8 @@ import { bindText } from "./i18n.js";
 import { errorMessage, message } from "./messages.js";
 import { alignTheory, validateTheoryMapping } from "./theory.js";
 import { configureCSV } from "./csv-mapping.js";
+import { createWorkerClient } from "./worker-client.js";
+import { csvEventIdentity } from "./csv-import-policy.js";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const UNIT_FIELDS = [
@@ -16,10 +18,6 @@ const CONTROL_IDS = [...UNIT_FIELDS.map(([id]) => id),
   "theory-offset", "theory-scale", "theory-columns"];
 const precise = (value) => Number.isFinite(value) ? String(Number(value.toFixed(6))) : "";
 const userMessage = (error) => error?.userMessage ?? errorMessage(error);
-const eventIdentity = (settings) => JSON.stringify([
-  settings.timeUnit, settings.hasHeader, settings.allowSparse,
-  ...["thrustTime", "thrust", "markerMode", "active", "start", "end"].map((key) => settings.columns?.[key]),
-]);
 
 export function createTheoryController({ onChange = () => {}, notice = () => {} } = {}) {
   let file = null, data = null, reduced = [], stats = null;
@@ -30,50 +28,10 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   let sourceValid = true, timingValid = true, sourceError = null;
   let importMode = $("theory-alignment").value;
   let mode = importMode, offset = 0, scale = 1;
-  let statusError = null, sequence = 0, revision = 0, sourceSequence = 0;
-  let sourceKey = "", worker = null, disposed = false, currentSnapshot;
-  let forceNextImport = false;
-  const pending = new Map();
-
-  function stopWorker() {
-    worker?.terminate();
-    worker = null;
-    for (const job of pending.values())
-      job.reject(new DOMException("Theoretical analysis cancelled", "AbortError"));
-    pending.clear();
-  }
-  function request(payload) {
-    if (!worker) {
-      const activeWorker = new Worker(new URL("./theory-worker.js", import.meta.url), { type: "module" });
-      worker = activeWorker;
-      activeWorker.onmessage = ({ data: response }) => {
-        if (worker !== activeWorker) return;
-        const job = pending.get(response.requestId);
-        if (!job) return;
-        pending.delete(response.requestId);
-        if (response.error)
-          job.reject(Object.assign(new Error(response.error.key), { userMessage: response.error }));
-        else job.resolve(response.result);
-      };
-      activeWorker.onerror = (event) => {
-        if (worker !== activeWorker) return;
-        const error = new Error(event.message);
-        for (const job of pending.values()) job.reject(error);
-        pending.clear();
-        worker?.terminate();
-        worker = null;
-      };
-    }
-    return new Promise((resolve, reject) => {
-      const requestId = ++sequence;
-      pending.set(requestId, { resolve, reject });
-      try { worker.postMessage({ ...payload, requestId }); }
-      catch (error) {
-        pending.delete(requestId);
-        reject(error);
-      }
-    });
-  }
+  let statusError = null, revision = 0, sourceSequence = 0;
+  let sourceKey = "", disposed = false, currentSnapshot;
+  let forceNextImport = false, configuration = null;
+  const worker = createWorkerClient(() => new Worker(new URL("./theory-worker.js", import.meta.url), { type: "module" }));
   function updateSnapshot() {
     currentSnapshot = { file, name: file?.name ?? "", data, reduced, stats,
       settings: { ...settings }, importSettings: { ...importSettings },
@@ -180,7 +138,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     }
     if (candidateFile.size > MAX_FILE_BYTES) {
       ++revision;
-      stopWorker();
+      worker.reset();
       loading = false;
       statusError = message("The theoretical CSV must be no larger than 20 MB.");
       publish({ fields: true });
@@ -190,13 +148,13 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     const previousSourceValid = sourceValid;
     const previousSourceError = sourceError;
     const jobRevision = ++revision;
-    if (replacement || reparse) stopWorker();
+    if (replacement || reparse) worker.reset();
     const key = replacement || reparse ? `theory-${++sourceSequence}` : sourceKey;
     loading = true;
     statusError = null;
     publish();
     try {
-      const result = await request({ key, file: candidateFile, settings: candidateSettings,
+      const result = await worker.request({ key, file: candidateFile, settings: candidateSettings,
         options: candidateOptions, includeData: replacement || reparse });
       if (disposed || jobRevision !== revision) return;
       file = candidateFile;
@@ -235,17 +193,20 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   }
   async function configureSource(candidateFile, { force = false, replacement = false } = {}) {
     const jobRevision = ++revision;
+    configuration?.abort();
+    const activeConfiguration = new AbortController();
+    configuration = activeConfiguration;
     loading = true;
     statusError = null;
     publish();
     try {
       if (candidateFile.size > MAX_FILE_BYTES)
         throw Object.assign(new Error(), { userMessage: message("The theoretical CSV must be no larger than 20 MB.") });
-      const candidateSettings = await configureCSV(candidateFile, replacement ? { ...importSettings } : settings, { force });
+      const candidateSettings = await configureCSV(candidateFile, replacement ? { ...importSettings } : settings, { force, signal: activeConfiguration.signal });
       if (disposed || revision !== jobRevision) return;
       loading = false;
       if (!candidateSettings) { publish({ fields: true }); return; }
-      const candidateOptions = replacement || eventIdentity(settings) !== eventIdentity(candidateSettings) ? {} : options;
+      const candidateOptions = replacement || csvEventIdentity(settings) !== csvEventIdentity(candidateSettings) ? {} : options;
       await analyze({ candidateFile, candidateSettings, candidateOptions, replacement, reparse: true });
     } catch (error) {
       if (disposed || revision !== jobRevision || error.name === "AbortError") return;
@@ -253,6 +214,8 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
       statusError = userMessage(error);
       publish({ fields: true });
       notice(statusError, "error");
+    } finally {
+      if (configuration === activeConfiguration) configuration = null;
     }
   }
   $("theory-add").onclick = () => { forceNextImport = false; $("theory-input").click(); };
@@ -271,7 +234,8 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   $("theory-input").addEventListener("cancel", () => { forceNextImport = false; });
   $("theory-remove").onclick = () => {
     ++revision;
-    stopWorker();
+    configuration?.abort();
+    worker.reset();
     file = data = stats = null;
     reduced = [];
     options = {};
@@ -368,7 +332,8 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     dispose() {
       disposed = true;
       ++revision;
-      stopWorker();
+      configuration?.abort();
+      worker.dispose();
       for (const id of [...CONTROL_IDS, "theory-add", "theory-input", "theory-remove", "theory-enabled"])
         $(id).onchange = $(id).onclick = null;
     },

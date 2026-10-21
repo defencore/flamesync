@@ -352,3 +352,15 @@ test("container millisecond quantization does not misclassify constant 120 FPS",
   );
   assert.equal(summarizeFrameTiming(frames, 3, 1000).variable, false);
 });
+
+test("native interpolation and partial impulse stay finite across large signed sensor values", () => {
+  const data = parseCSV("time_s;thrust;pressure\n0;-1e308;-1e308\n1;1e308;1e308\n2;-1e308;-1e308");
+  const halfway = sampleAt(data, 0.5);
+  assert.equal(halfway.thrust, 0);
+  assert.equal(halfway.pressure, 0);
+  assert.equal(halfway.impulse, 0);
+  const rising = sampleAt(data, 0.75);
+  assert.ok(Math.abs(rising.thrust / 5e307 - 1) < 1e-14);
+  assert.ok(Math.abs(rising.impulse / 6.25e306 - 1) < 1e-14);
+  assert.ok(Math.abs(data.impulse / 5e307 - 1) < 1e-14);
+});

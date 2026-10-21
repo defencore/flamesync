@@ -5,6 +5,7 @@ import {
   adjacentFrameTime,
   frameInfoAt,
   selectedFrameRange,
+  summarizeFrameTiming,
 } from "../src/timing.js";
 
 const rates = [
@@ -120,4 +121,34 @@ test("interior media seeks retain arbitrary positions and stay bounded for short
   const last = mediaSeekTime(times, 0.3, 0.300001);
   assert.ok(last > 0.3 && last < 0.300001);
   assert.equal(mediaSeekTime(new Float64Array(), 0.15, 0.5), 0.15);
+});
+
+test("a one-frame recording derives its rate from the frame's actual duration", () => {
+  const timing = summarizeFrameTiming(new Float64Array([0.02]), 0.045, 1000);
+  assert.equal(timing.frameCount, 1);
+  assert.equal(timing.fps, 40);
+  assert.equal(timing.minFps, 40);
+  assert.equal(timing.maxFps, 40);
+  assert.equal(timing.variable, false);
+  assert.equal(timing.start, 0.02);
+  assert.equal(timing.end, 0.045);
+});
+
+test("an invalid frame index cannot advertise plausible FPS or propagate a broken clock", () => {
+  for (const [values, end, resolution] of [
+    [[], 1, 1000],
+    [[0, 0.02, NaN], 1, 1000],
+    [[0, Infinity], 1, 1000],
+    [[-0.01, 0], 1, 1000],
+    [[0, 0.02, 0.01], 1, 1000],
+    [[0, 0.01, 0.01], 1, 1000],
+    [[0, 0.02], 0.01, 1000],
+    [[0, 0.02], NaN, 1000],
+    [[0, 0.02], 1, 0],
+    [[0, 0.02], 1, Infinity],
+    [[0, Number.MIN_VALUE], 1, 1000],
+  ])
+    assert.throws(() =>
+      summarizeFrameTiming(new Float64Array(values), end, resolution),
+    );
 });

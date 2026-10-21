@@ -29,7 +29,7 @@ export function createUIController(editor) {
     const unavailable =
       !(state.file && state.data) ||
       state.loading ||
-      state.csvLoading || state.theory?.loading ||
+      state.csvLoading || state.theory?.loading || state.timingWorker ||
       theoryInvalid || theoryUnmapped ||
       state.exporting;
     const overlaps =
@@ -40,7 +40,7 @@ export function createUIController(editor) {
     for (const button of document.querySelectorAll("[data-save-video]"))
       button.disabled = unavailable || !overlaps;
     const status =
-      state.loading || state.csvLoading || state.theory?.loading
+      state.loading || state.csvLoading || state.theory?.loading || state.timingWorker
         ? "Reading your files…"
         : theoryInvalid
           ? "Correct the theoretical profile settings or disable theory before saving."

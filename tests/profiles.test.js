@@ -348,3 +348,34 @@ test("noise and comparison use native pressure knots independently of the thrust
   near(difference.pressure.bias, 2);
   near(difference.pressureCoverage, 0.75);
 });
+
+test("large finite means, residual RMS and comparison errors avoid overflow in intermediate moments", () => {
+  const constant = csv([[0, 1e308, 1e308], [.5, 1e308, 1e308], [1, 1e308, 1e308]]);
+  const result = analyseProfile(constant, { start: 0, end: 1 });
+  assert.equal(result.meanThrust, 1e308);
+  assert.equal(result.meanPressure, 1e308);
+  assert.equal(result.noiseThrustRms, 0);
+  assert.equal(result.noisePressureRms, 0);
+  const zero = csv([[0, 0, 0], [1, 0, 0]]);
+  const ramp = csv([[0, -1e200, 1e200], [1, 1e200, 1e200]]);
+  const difference = compareProfiles(zero, { offset: 0, scale: 1 }, ramp, { offset: 0, scale: 1 });
+  assert.ok(Math.abs(difference.thrust.rmse / (1e200 / Math.sqrt(3)) - 1) < 1e-14);
+  assert.ok(Math.abs(difference.thrust.mae / 5e199 - 1) < 1e-14);
+  assert.equal(difference.thrust.bias, 0);
+  assert.equal(difference.pressure.rmse, 1e200);
+});
+
+test("an unrepresentable physical difference fails with a user error instead of publishing Infinity", () => {
+  const negative = csv([[0, -1e308, 0], [1, -1e308, 0]]);
+  const positive = csv([[0, 1e308, 0], [1, 1e308, 0]]);
+  assert.throws(() => compareProfiles(negative, { offset: 0, scale: 1 }, positive, { offset: 0, scale: 1 }), (error) =>
+    error instanceof UserError && error.userMessage.key.includes("numeric range"));
+});
+
+test("large pressure means do not calculate an unused pressure impulse", () => {
+  const data = csv([[0, 1, 1e308], [5, 1, 1e308], [10, 1, 1e308]]);
+  const result = analyseProfile(data, { start: 0, end: 10 });
+  assert.equal(result.impulse, 10);
+  assert.equal(result.meanPressure, 1e308);
+  assert.equal(result.noisePressureRms, 0);
+});

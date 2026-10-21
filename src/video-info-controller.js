@@ -22,7 +22,8 @@ export function createVideoInfoController(editor) {
   let sourceCache = null,
     sourceKey = null,
     timingKey = null,
-    lastFrame = -1;
+    lastFrame = -1,
+    disposed = false;
   function source() {
     if (!state.file) return null;
     if (sourceKey !== state.file || timingKey !== state.timing) {
@@ -162,19 +163,22 @@ export function createVideoInfoController(editor) {
     );
   }
   function inspect(file) {
+    if (disposed) return;
     state.timingWorker?.terminate();
+    state.timingWorker = null;
     lastFrame = -1;
-    const worker = new Worker(
-      new URL("./video-timing-worker.js", import.meta.url),
-      { type: "module" },
-    );
-    state.timingWorker = worker;
+    let worker = null;
+    const current = () =>
+      !disposed && state.file === file && state.timingWorker === worker;
     const finish = () => {
-      worker.terminate();
+      if (worker) {
+        worker.onmessage = worker.onerror = worker.onmessageerror = null;
+        worker.terminate();
+      }
       if (state.timingWorker === worker) state.timingWorker = null;
     };
     const failed = (error) => {
-      if (state.file !== file) return;
+      if (!current()) return;
       state.timingError = true;
       bindText("timing-video-detail", [
         message("Frame inspection unavailable."),
@@ -187,43 +191,56 @@ export function createVideoInfoController(editor) {
       finish();
       editor.refresh();
     };
-    worker.onmessage = ({ data }) => {
-      if (state.file !== file) return;
-      if (data.type === "progress")
-        bindText("timing-video-detail", "Checking {count} frames…", {
-          count: data.frames.toLocaleString("en-US"),
-        });
-      else if (data.type === "error") failed(data.error);
-      else if (data.type === "done") {
-        state.timing = data.timing;
-        state.fps = data.timing.fps;
-        state.frameTimes = new Float64Array(data.timestamps);
-        lastFrame = -1;
-        bindText("preview-info", "{width} × {height} · {fps} fps{variable}", {
-          width: state.width,
-          height: state.height,
-          fps: state.fps.toFixed(2),
-          variable: data.timing.variable ? " · VFR" : "",
-        });
-        bindText(
-          "timing-video-detail",
-          data.timing.variable
-            ? "{count} frames checked · {duration} s · variable rate"
-            : "{count} frames checked · {duration} s · constant rate",
-          {
-            count: data.timing.frameCount.toLocaleString("en-US"),
-            duration: data.timing.end.toFixed(3),
-          },
-        );
-        finish();
-        editor.refresh();
-      }
-    };
-    worker.onerror = (event) => {
-      event.preventDefault();
-      failed(errorMessage(new Error(event.message || "Unsupported container")));
-    };
-    worker.postMessage({ file });
+    try {
+      worker = new Worker(
+        new URL("./video-timing-worker.js", import.meta.url),
+        { type: "module" },
+      );
+      state.timingWorker = worker;
+      worker.onmessage = ({ data }) => {
+        if (!current()) return;
+        if (data.type === "progress")
+          bindText("timing-video-detail", "Checking {count} frames…", {
+            count: data.frames.toLocaleString("en-US"),
+          });
+        else if (data.type === "error") failed(data.error);
+        else if (data.type === "done") {
+          state.timingError = false;
+          state.timing = data.timing;
+          state.fps = data.timing.fps;
+          state.frameTimes = new Float64Array(data.timestamps);
+          lastFrame = -1;
+          bindText("preview-info", "{width} × {height} · {fps} fps{variable}", {
+            width: state.width,
+            height: state.height,
+            fps: state.fps.toFixed(2),
+            variable: data.timing.variable ? " · VFR" : "",
+          });
+          bindText(
+            "timing-video-detail",
+            data.timing.variable
+              ? "{count} frames checked · {duration} s · variable rate"
+              : "{count} frames checked · {duration} s · constant rate",
+            {
+              count: data.timing.frameCount.toLocaleString("en-US"),
+              duration: data.timing.end.toFixed(3),
+            },
+          );
+          finish();
+          editor.refresh();
+        }
+      };
+      worker.onerror = (event) => {
+        if (!current()) return;
+        event.preventDefault();
+        failed(errorMessage(new Error(event.message || "Unsupported container")));
+      };
+      worker.onmessageerror = () =>
+        failed(errorMessage(new Error("The video frame index could not be read.")));
+      worker.postMessage({ file });
+    } catch (error) {
+      failed(errorMessage(error));
+    }
   }
   return {
     source,
@@ -232,7 +249,13 @@ export function createVideoInfoController(editor) {
     updateFrame,
     inspect,
     dispose() {
-      state.timingWorker?.terminate();
+      disposed = true;
+      const worker = state.timingWorker;
+      state.timingWorker = null;
+      if (worker) {
+        worker.onmessage = worker.onerror = worker.onmessageerror = null;
+        worker.terminate();
+      }
     },
   };
 }

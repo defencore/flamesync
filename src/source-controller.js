@@ -7,88 +7,54 @@ import { downloadBlob } from "./files.js";
 import { DEFAULT_CSV_SETTINGS } from "./units.js";
 import { DEFAULT_VIDEO_FRAMING } from "./video-framing.js";
 import { configureCSV } from "./csv-mapping.js";
-
-const clockIdentity = (settings) => JSON.stringify([
-  settings.timeUnit, settings.hasHeader, settings.columns?.thrustTime,
-]);
-const eventIdentity = (settings) => JSON.stringify([
-  settings.allowSparse,
-  ...["thrust", "markerMode", "active", "start", "end"].map((key) => settings.columns?.[key]),
-]);
+import { csvClockIdentity, csvEventIdentity } from "./csv-import-policy.js";
+import { createWorkerClient } from "./worker-client.js";
+import { readVideoMetadata } from "./video-metadata.js";
 export function createSourceController(editor) {
   const { state, video } = editor;
   let videoVersion = 0,
     csvVersion = 0,
-    csvTask = null,
+    csvConfiguration = null,
+    videoConfiguration = null,
     csvCandidate = null,
     forceNextCSV = false;
+  const csvWorker = createWorkerClient(() => new Worker(new URL("./csv-worker.js", import.meta.url), { type: "module" }));
   const readSettings = () => ({
     ...state.csvSettings,
     timeUnit: $("csv-time-unit").value,
     thrustUnit: $("source-thrust-unit").value,
     pressureUnit: $("source-pressure-unit").value,
   });
-  function readCSV(file, settings) {
-    const worker = new Worker(new URL("./csv-worker.js", import.meta.url), {
-      type: "module",
-    });
-    let rejectRead;
-    const promise = new Promise((resolve, reject) => {
-      rejectRead = reject;
-      worker.onmessage = ({ data }) => {
-        worker.terminate();
-        if (data.type === "done") resolve(data);
-        else reject(new UserError(data.error.key, data.error.values));
-      };
-      worker.onerror = (event) => {
-        event.preventDefault();
-        worker.terminate();
-        reject(
-          new UserError("The CSV could not be read. {details}", {
-            details: event.message || "",
-          }),
-        );
-      };
-      worker.postMessage({ file, settings });
-    });
-    return {
-      promise,
-      cancel() {
-        worker.terminate();
-        rejectRead(new DOMException("CSV read canceled.", "AbortError"));
-      },
-    };
-  }
   async function loadCSV(
     file,
-    { preserveSync = false, settings = editor.preferences.csvImportSettings(), rememberSettings = false,
+    { settings = editor.preferences.csvImportSettings(), rememberSettings = false,
       configure = true, force = false } = {},
   ) {
     const version = ++csvVersion;
+    csvConfiguration?.abort();
+    const configuration = new AbortController();
+    csvConfiguration = configuration;
     csvCandidate = file;
-    csvTask?.cancel();
+    csvWorker.reset();
     state.csvLoading = true;
     $("csv-columns").disabled = true;
     editor.refresh();
-    let task;
     try {
       if (file.size > 50 * 1024 * 1024)
         throw new UserError(
           "This CSV exceeds 50 MB. Export a smaller telemetry log first.",
         );
       if (configure) {
-        settings = await configureCSV(file, settings, { force });
+        settings = await configureCSV(file, settings, { force, signal: configuration.signal });
         if (version !== csvVersion) return;
         if (!settings) { csvCandidate = state.csvFile; return; }
       }
       if (version !== csvVersion) return;
       const sameFile = file === state.csvFile;
-      const resetClock = !sameFile || clockIdentity(settings) !== clockIdentity(state.csvSettings);
-      const resetEvents = resetClock || eventIdentity(settings) !== eventIdentity(state.csvSettings);
-      preserveSync = sameFile && !resetClock;
-      task = readCSV(file, { ...settings });
-      csvTask = task;
-      const { data: parsed, reduced } = await task.promise;
+      const resetClock = !sameFile || csvClockIdentity(settings) !== csvClockIdentity(state.csvSettings);
+      const resetEvents = resetClock || csvEventIdentity(settings) !== csvEventIdentity(state.csvSettings);
+      const preserveSync = sameFile && !resetClock;
+      const { data: parsed, reduced } = await csvWorker.request({ file, settings });
       if (version !== csvVersion) return;
       editor.timeline.cancelDrag();
       state.data = parsed;
@@ -100,14 +66,13 @@ export function createSourceController(editor) {
         state.timeScale = 1;
         state.offset = 0;
         editor.timeline.clearFeedback();
-        editor.edits.reset();
       }
       if (resetEvents) {
         editor.timeline.clearFeedback();
         editor.timeline.resetAnchors();
         editor.measurements.detect();
-        if (preserveSync) editor.edits.reset();
       }
+      if (!preserveSync || resetEvents) editor.edits.reset();
       $("csv-end-anchor").min = String(parsed.start);
       $("csv-end-anchor").max = String(parsed.end);
       $("csv-filename").textContent = file.name;
@@ -129,8 +94,9 @@ export function createSourceController(editor) {
         editor.notice(errorMessage(error), "error");
       }
     } finally {
-      if (csvTask === task) csvTask = null;
       if (version === csvVersion) {
+        csvConfiguration = null;
+        csvWorker.reset();
         state.csvLoading = false;
         $("csv-columns").disabled = false;
         for (const [id, key] of [
@@ -156,9 +122,6 @@ export function createSourceController(editor) {
           settings,
           rememberSettings: true,
           configure: false,
-          preserveSync:
-            csvCandidate === state.csvFile &&
-            settings.timeUnit === state.csvSettings.timeUnit,
         });
       else {
         state.csvSettings = settings;
@@ -168,54 +131,21 @@ export function createSourceController(editor) {
   }
   $("csv-columns").onclick = () => {
     if (state.csvLoading || state.exporting) return;
-    if (state.csvFile) loadCSV(state.csvFile, { settings: state.csvSettings, force: true, preserveSync: true });
+    if (state.csvFile) loadCSV(state.csvFile, { settings: state.csvSettings, force: true });
     else { forceNextCSV = true; $("csv-input").click(); }
   };
   $("csv-input").addEventListener("cancel", () => { forceNextCSV = false; });
 
   async function loadVideo(file) {
     const version = ++videoVersion;
+    videoConfiguration?.abort();
+    const configuration = new AbortController();
+    videoConfiguration = configuration;
     const url = URL.createObjectURL(file);
-    const probe = document.createElement("video");
-    probe.preload = "metadata";
     try {
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(
-          () =>
-            reject(
-              new UserError(
-                "The video metadata could not be read. Try an MP4 or WebM file supported by your browser.",
-              ),
-            ),
-          20000,
-        );
-        probe.onloadedmetadata = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        probe.onerror = () => {
-          clearTimeout(timer);
-          reject(
-            new UserError(
-              "This browser cannot play this video. Try an H.264 MP4 or VP9 WebM file.",
-            ),
-          );
-        };
-        probe.src = url;
-      });
+      const metadata = await readVideoMetadata(url, { signal: configuration.signal });
       if (version !== videoVersion) {
-        URL.revokeObjectURL(url);
         return;
-      }
-      if (
-        !Number.isFinite(probe.duration) ||
-        probe.duration <= 0.001 ||
-        !probe.videoWidth ||
-        !probe.videoHeight
-      ) {
-        throw new UserError(
-          "The video needs a finite duration and a playable video track.",
-        );
       }
       editor.timeline.cancelDrag();
       video.pause();
@@ -224,9 +154,9 @@ export function createSourceController(editor) {
       const replacingVideo = Boolean(state.file);
       state.file = file;
       if (replacingVideo) Object.assign(state.style, DEFAULT_VIDEO_FRAMING);
-      state.duration = probe.duration;
+      state.duration = metadata.duration;
       state.start = 0;
-      state.end = probe.duration;
+      state.end = metadata.duration;
       state.offset = 0;
       state.timeScale = 1;
       editor.timeline.clearFeedback();
@@ -238,8 +168,8 @@ export function createSourceController(editor) {
         $("timing-video-detail"),
         message("Checking all frame timestamps…"),
       );
-      state.width = probe.videoWidth;
-      state.height = probe.videoHeight;
+      state.width = metadata.width;
+      state.height = metadata.height;
       state.presentedTime = null;
       state.seekTime = null;
       editor.refresh();
@@ -249,9 +179,9 @@ export function createSourceController(editor) {
       bindText(
         $("video-meta"),
         message("{value0} × {value1} · {value2}", {
-          value0: probe.videoWidth,
-          value1: probe.videoHeight,
-          value2: formatTime(probe.duration, false),
+          value0: metadata.width,
+          value1: metadata.height,
+          value2: formatTime(metadata.duration, false),
         }),
       );
       $("video-drop").classList.add("loaded");
@@ -259,11 +189,11 @@ export function createSourceController(editor) {
       bindText(
         $("preview-info"),
         message("{value0} × {value1}", {
-          value0: probe.videoWidth,
-          value1: probe.videoHeight,
+          value0: metadata.width,
+          value1: metadata.height,
         }),
       );
-      $("total-time").textContent = formatTime(probe.duration);
+      $("total-time").textContent = formatTime(metadata.duration);
       editor.timeline.populateEvents();
       editor.timeline.resetView();
       editor.edits.reset();
@@ -273,11 +203,10 @@ export function createSourceController(editor) {
       editor.notice("");
       editor.videoInfo.inspect(file);
     } catch (error) {
-      if (state.videoURL !== url) URL.revokeObjectURL(url);
-      editor.notice(errorMessage(error), "error");
+      if (version === videoVersion) editor.notice(errorMessage(error), "error");
     } finally {
-      probe.removeAttribute("src");
-      probe.load();
+      if (state.videoURL !== url) URL.revokeObjectURL(url);
+      if (videoConfiguration === configuration) videoConfiguration = null;
     }
   }
 
@@ -400,8 +329,10 @@ export function createSourceController(editor) {
     loadCSV,
     dispose() {
       videoVersion++;
+      videoConfiguration?.abort();
       csvVersion++;
-      csvTask?.cancel();
+      csvConfiguration?.abort();
+      csvWorker.dispose();
     },
   };
 }

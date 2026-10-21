@@ -1,5 +1,7 @@
 import { formatValue } from "./data.js";
 import { displayThrust, displayPressure } from "./units.js";
+import { valueAxis, axisFraction } from "./plot-axis.js";
+import { linearValue, linearFraction } from "./signal-math.js";
 import { t } from "./i18n.js";
 
 export function measurementPlotBox(width, height) {
@@ -69,19 +71,15 @@ export function drawMeasurementChart(
     );
     return box;
   }
-  const x = (time) => box.x + ((time - data.start) / data.duration) * box.width;
-  const thrustMin = Math.min(0, data.minThrust);
-  const pressureMin = Math.min(0, data.minPressure);
-  const thrustMax =
-    Math.max(data.peakThrust * 1.08, Math.abs(thrustMin) * 0.08) || 1;
-  const pressureMax =
-    Math.max(data.peakPressure * 1.08, Math.abs(pressureMin) * 0.08) || 1;
+  const x = (time) => box.x + linearFraction(data.start, data.end, time) * box.width;
+  const convert = (value, key) => key === "thrust"
+    ? displayThrust(value, units.thrustUnit) : displayPressure(value, units.pressureUnit);
+  const axes = {
+    thrust: valueAxis(convert(data.minThrust, "thrust"), convert(data.peakThrust, "thrust")),
+    pressure: valueAxis(convert(data.minPressure, "pressure"), convert(data.peakPressure, "pressure")),
+  };
   const y = (v, key) =>
-    box.y +
-    box.height -
-    ((v - (key === "thrust" ? thrustMin : pressureMin)) /
-      (key === "thrust" ? thrustMax - thrustMin : pressureMax - pressureMin)) *
-      box.height;
+    box.y + box.height - axisFraction(convert(v, key), axes[key]) * box.height;
   ctx.strokeStyle = "#e1e6ec";
   ctx.lineWidth = 1;
   for (let i = 0; i <= 2; i++) {
@@ -93,24 +91,14 @@ export function drawMeasurementChart(
     ctx.textAlign = "right";
     ctx.fillStyle = "#8c542d";
     ctx.fillText(
-      formatValue(
-        displayThrust(
-          thrustMax - ((thrustMax - thrustMin) * i) / 2,
-          units.thrustUnit,
-        ),
-      ),
+      formatValue(linearValue(axes.thrust.max, axes.thrust.min, i / 2)),
       box.x - 7,
       yy + 4,
     );
     ctx.textAlign = "left";
     ctx.fillStyle = "#267780";
     ctx.fillText(
-      formatValue(
-        displayPressure(
-          pressureMax - ((pressureMax - pressureMin) * i) / 2,
-          units.pressureUnit,
-        ),
-      ),
+      formatValue(linearValue(axes.pressure.max, axes.pressure.min, i / 2)),
       box.x + box.width + 7,
       yy + 4,
     );
@@ -124,7 +112,7 @@ export function drawMeasurementChart(
   ctx.fillStyle = "#627182";
   for (let i = 0; i <= 4; i++)
     ctx.fillText(
-      `${(data.start + (data.duration * i) / 4).toFixed(2)} s`,
+      `${linearValue(data.start, data.end, i / 4).toFixed(2)} s`,
       box.x + (box.width * i) / 4,
       box.y + box.height + 22,
     );

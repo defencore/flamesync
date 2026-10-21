@@ -1,8 +1,8 @@
 // @ts-check
-import { UserError, message } from "./messages.js";
+import { UserError } from "./messages.js";
 // All timeline calculations use seconds; CSV timestamps remain absolute logger times.
 import { mergeSignalCurves, reduceSignal } from "./signal-curves.js";
-import { positiveArea } from "./signal-math.js";
+import { linearValue, positiveArea } from "./signal-math.js";
 /** @typedef {{t:number, thrust?:number, pressure?:number, impulse?:number, line?:number, gapBefore?:boolean,
  * maxThrustSoFar?:number,maxPressureSoFar?:number}} NativePoint */
 /** @typedef {{t:number,thrust:number|null,pressure:number|null,impulse:number}} DataPoint */
@@ -41,13 +41,14 @@ function sampleIndexAt(points, time) {
  * @param {NativePoint[]} points @param {"thrust"|"pressure"} key @param {number} time */
 export function signalSample(points, key, time) {
   if (!points.length || time < points[0].t || time > points[points.length - 1].t) return null;
-  const a = points[sampleIndexAt(points, time)], b = points[sampleIndexAt(points, time) + 1];
+  const index = sampleIndexAt(points, time);
+  const a = points[index], b = points[index + 1];
   const first = Number(a[key]);
   if (!Number.isFinite(first)) return null;
   if (!b || time === a.t) return { ...a, [key]: first };
   if (b.gapBefore) return null;
   const fraction = (time - a.t) / (b.t - a.t);
-  const value = first + (Number(b[key]) - first) * fraction;
+  const value = linearValue(first, Number(b[key]), fraction);
   return { t: time, [key]: value, impulse: key === "thrust"
     ? (a.impulse ?? 0) + positiveArea(first, value, time - a.t) : undefined };
 }

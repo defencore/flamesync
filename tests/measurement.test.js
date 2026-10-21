@@ -132,3 +132,13 @@ test("source frame information is one-based and uses actual VFR timestamps", () 
   assert.equal(selectedFrameRange(frames, 0.12, 0.15, 0.12), null);
   assert.equal(frameInfoAt(new Float64Array(), 0, 0), null);
 });
+
+test("finite extreme values cannot overflow the percentage threshold or crossing interpolation", () => {
+  const data = log([[0, -1e308, 0], [1000, 1e308, 0], [2000, -1e308, 0]]);
+  const result = detectBurnInterval(data);
+  assert.ok(Number.isFinite(result.threshold));
+  assert.ok(Math.abs(result.start - 0.525) < 1e-12);
+  assert.ok(Math.abs(result.end - 1.475) < 1e-12);
+  assert.equal(data.ignition, result.start);
+  assert.equal(result.periods, 1);
+});

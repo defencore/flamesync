@@ -1,7 +1,7 @@
 import { UserError, message } from "./messages.js";
 import { timeFactor, thrustFactor, pressureFactor } from "./units.js";
 import { csvTable, resolveColumns, columnTimeUnit, csvNumber } from "./csv-format.js";
-import { positiveArea } from "./signal-math.js";
+import { linearFraction, linearValue, positiveArea } from "./signal-math.js";
 
 function channel(points, key) {
   const intervals = [];
@@ -108,7 +108,7 @@ export function parseCSV(text, settings = {}) {
   let ignition = points[0].t;
   if (onset > 0) {
     const a = points[onset - 1], b = points[onset];
-    ignition = !b.gapBefore ? a.t + (threshold - a.thrust) / (b.thrust - a.thrust) * (b.t - a.t) : b.t;
+    ignition = !b.gapBefore ? linearValue(a.t, b.t, linearFraction(a.thrust, b.thrust, threshold)) : b.t;
   }
   if (events?.start !== null && events?.start !== undefined) ignition = events.start;
   const warnings = [];

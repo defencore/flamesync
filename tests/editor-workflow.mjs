@@ -176,7 +176,9 @@ export async function verifyEditorWorkflow({
         document
           .querySelector("#timing-video-detail")
           .textContent.includes("frames checked") &&
-        !document.querySelector("#frame-next").disabled,
+        !document.querySelector("#frame-next").disabled &&
+        document.querySelector("#csv-filename").textContent === "workflow-local.csv" &&
+        document.querySelector("#csv-drop").getAttribute("aria-busy") !== "true",
     );
     await page.locator(".sync-adjustments").evaluate((element) => {
       element.open = true;

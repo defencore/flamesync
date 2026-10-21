@@ -76,7 +76,7 @@ export async function verifyCustomCSV({ browser, baseURL, outputDir }) {
     await page.waitForFunction((name) => document.querySelector("#csv-filename").textContent === name &&
       !document.querySelector("#measure-start").disabled, source.name); await frame(page);
   };
-  const lastData = (page) => page.evaluate(() => [...window.__customWorkerMessages].reverse().find((entry) => entry.data?.type === "done" && entry.data?.data?.points)?.data.data);
+  const lastData = (page) => page.evaluate(() => [...window.__customWorkerMessages].reverse().find((entry) => entry.data?.result?.data?.points)?.data.result.data);
   const fields = (page) => page.evaluate(() => Object.fromEntries(
     ["measure-start", "measure-end", "trim-start", "trim-end", "sync-offset", "stretch-percent"].map((id) => [id, document.getElementById(id).value])));
   const events = async (page, start, end) => {
@@ -121,7 +121,7 @@ export async function verifyCustomCSV({ browser, baseURL, outputDir }) {
         constructor(...arguments_) {
           super(...arguments_);
           this.addEventListener("message", ({ data }) => {
-            if (data?.data?.points || data?.result?.data?.points || data?.result?.records)
+            if (data?.result?.data?.points || data?.result?.records)
               window.__customWorkerMessages.push({ data });
           });
         }
@@ -267,6 +267,39 @@ export async function verifyCustomCSV({ browser, baseURL, outputDir }) {
       }, { input, name });
       assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), false, `${input} must retain the standard import after a canceled custom picker`);
     }
+  });
+
+  await caseOf("a newer standard source replaces a pending custom column dialog without blocking the import queue", async (page) => {
+    await page.locator("#csv-input").setInputFiles(custom("PRIVATE-SUPERSEDED-LOG.csv"));
+    await page.locator("#csv-mapping-dialog").waitFor({ state: "visible" });
+    await page.locator("#csv-input").setInputFiles(custom("PRIVATE-NEWER-CUSTOM-LOG.csv"));
+    await page.waitForFunction(() => document.querySelector("#csv-map-filename").textContent === "PRIVATE-NEWER-CUSTOM-LOG.csv" &&
+      document.querySelector("#csv-mapping-dialog").open, null, { timeout: 5000 });
+    await frame(page);
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), true, "An older dialog close event cannot cancel the newer custom source");
+    await page.locator("#csv-input").setInputFiles(standard("PRIVATE-REPLACEMENT-STANDARD.csv"));
+    await page.locator("#csv-mapping-dialog").waitFor({ state: "hidden", timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector("#csv-filename").textContent === "PRIVATE-REPLACEMENT-STANDARD.csv" &&
+      !document.querySelector("#clear-settings").disabled, null, { timeout: 5000 });
+    const data = await lastData(page);
+    assert.equal(data.points.length, 4); assert.equal(data.hasHeader, true);
+    closeTo(data.peakThrust, 98.0665, "Only the newer standard source can become active");
+    assert.equal(data.peakPressure, 2);
+    await page.locator("#theory-input").setInputFiles(custom("PRIVATE-SUPERSEDED-THEORY.csv", { offset: 10 }));
+    await page.locator("#csv-mapping-dialog").waitFor({ state: "visible" });
+    await page.locator("#theory-input").setInputFiles(custom("PRIVATE-NEWER-CUSTOM-THEORY.csv", { offset: 20 }));
+    await page.waitForFunction(() => document.querySelector("#csv-map-filename").textContent === "PRIVATE-NEWER-CUSTOM-THEORY.csv" &&
+      document.querySelector("#csv-mapping-dialog").open, null, { timeout: 5000 });
+    await frame(page);
+    assert.equal(await page.locator("#csv-mapping-dialog").isVisible(), true);
+    await page.locator("#theory-input").setInputFiles(standard("PRIVATE-REPLACEMENT-STANDARD-THEORY.csv"));
+    await page.locator("#csv-mapping-dialog").waitFor({ state: "hidden", timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector("#theory-name").textContent === "PRIVATE-REPLACEMENT-STANDARD-THEORY.csv" &&
+      document.querySelector("#theory-panel").getAttribute("aria-busy") !== "true", null, { timeout: 5000 });
+    const theory = await page.evaluate(() => [...window.__customWorkerMessages].reverse().find(({ data }) => data.result?.data?.points)?.data.result.data);
+    assert.equal(theory.points.length, 4); assert.equal(theory.hasHeader, true);
+    closeTo(theory.peakThrust, 98.0665, "Only the newer theoretical source can become active");
+    assert.equal(theory.peakPressure, 2);
   });
 
   await caseOf("independent millisecond and microsecond clocks retain pressure spikes, physical rows, and explicit event flags", async (page) => {

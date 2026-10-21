@@ -1,4 +1,5 @@
 export const csvUk = {
+  "The analysis exceeds the supported numeric range. Check the values, units, and timestamps.": "Розрахунки виходять за підтримуваний числовий діапазон. Перевірте значення, одиниці й часові мітки.",
   "Line {value0}: malformed quoted CSV field.": "Рядок {value0}: некоректні лапки в полі CSV.",
   "T: {thrust} · P: {pressure}": "Т: {thrust} · P: {pressure}",
   "Custom columns…": "Кастомні стовпчики…",

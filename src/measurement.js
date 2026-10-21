@@ -1,5 +1,6 @@
 // @ts-check
 import { UserError, message } from "./messages.js";
+import { finiteAnalysis, linearFraction, linearValue } from "./signal-math.js";
 
 /** @typedef {{start:number|null,end:number|null,threshold:number,periods:number,warnings:import("./messages.js").Message[]}} DetectedBurn */
 /** @param {import('./data.js').BurnData} data @param {number} percent @returns {DetectedBurn} */
@@ -8,7 +9,7 @@ export function detectBurnInterval(data, percent = 5) {
     throw new UserError(
       "Detection threshold must be greater than 0% and less than 100%.",
     );
-  const threshold = (data.peakThrust * percent) / 100;
+  const threshold = data.peakThrust * (percent / 100);
   if (data.events) {
     const warnings = [];
     if (data.events.start === null) warnings.push(message("No ignition indicator was found. Set A manually."));
@@ -32,7 +33,7 @@ export function detectBurnInterval(data, percent = 5) {
   while (last >= 0 && points[last].thrust < threshold) last--;
   /** @param {import('./data.js').ThrustPoint} a @param {import('./data.js').ThrustPoint} b */
   const crossing = (a, b) =>
-    a.t + ((threshold - a.thrust) / (b.thrust - a.thrust)) * (b.t - a.t);
+    linearValue(a.t, b.t, linearFraction(a.thrust, b.thrust, threshold));
   const riseA = points[first - 1],
     riseB = points[first];
   const fallA = points[last],
@@ -93,7 +94,7 @@ export function intervalStats(data, start, end, timeScale = 1) {
   }
   return {
     csvDuration: end - start,
-    videoDuration: (end - start) * timeScale,
+    videoDuration: finiteAnalysis((end - start) * timeScale),
     gaps,
   };
 }

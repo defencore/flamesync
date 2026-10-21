@@ -5,14 +5,16 @@ const PREVIEW_BYTES = 128 * 1024;
 let queue = Promise.resolve();
 
 /** Configure a local CSV without reading or retaining the entire source file. */
-export function configureCSV(file, settings = {}, { force = false } = {}) {
-  const request = queue.then(() => configure(file, settings, force));
+export function configureCSV(file, settings = {}, { force = false, signal } = {}) {
+  const request = queue.then(() => configure(file, settings, force, signal));
   queue = request.catch(() => {});
   return request;
 }
 
-async function configure(file, settings, force) {
+async function configure(file, settings, force, signal) {
+  signal?.throwIfAborted();
   const text = await file.slice(0, PREVIEW_BYTES).text();
+  signal?.throwIfAborted();
   let hasHeader = settings.hasHeader !== false;
   let inspected = inspectCSV(text, { hasHeader, maxRows: 5 });
   if (!force && settings.columns) return { ...settings };
@@ -178,22 +180,27 @@ async function configure(file, settings, force) {
   updateFields();
   const abort = new AbortController();
   const options = { signal: abort.signal };
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let finished = false;
-    function finish(result) {
+    function finish(result, error = null) {
       if (finished) return;
       finished = true;
       abort.abort();
-      dialog.close();
-      resolve(result);
+      if (dialog.open) dialog.close();
+      if (error) reject(error);
+      else resolve(result);
     }
+    signal?.addEventListener("abort", () => finish(null, signal.reason), options);
     get("close").addEventListener("click", () => finish(null), options);
     get("cancel").addEventListener("click", () => finish(null), options);
     dialog.addEventListener("cancel", (event) => {
       event.preventDefault();
       finish(null);
     }, options);
-    dialog.addEventListener("close", () => finish(null), options);
+    dialog.addEventListener("close", () => {
+      // A previous dialog's queued close event can arrive after this one opens.
+      if (!dialog.open) finish(null);
+    }, options);
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const result = values();
@@ -222,6 +229,10 @@ async function configure(file, settings, force) {
       renderColumns();
       get("error").hidden = true;
     }, options);
-    dialog.showModal();
+    if (signal?.aborted) finish(null, signal.reason);
+    else {
+      try { dialog.showModal(); }
+      catch (error) { finish(null, error); }
+    }
   });
 }

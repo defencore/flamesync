@@ -18,12 +18,14 @@ import { createPreferencesController } from "./preferences.js";
 import { bindTooltips } from "./tooltips.js";
 import { initializeLanguage, bindText } from "./i18n.js";
 import { errorMessage } from "./messages.js";
+import { bindPageLifecycle } from "./page-lifecycle.js";
 
 const state = createEditorState();
 let refreshFrame = 0,
   fullRefresh = false,
   disposeShortcuts,
-  profiles;
+  profiles,
+  pageLifecycle;
 const editor = {
   state,
   video: $("source-video"),
@@ -35,6 +37,7 @@ const editor = {
       !message || (Array.isArray(message) && !message.length);
   },
   refresh(scope = "all") {
+    pageLifecycle?.update();
     fullRefresh ||= scope === "all";
     if (refreshFrame) return;
     refreshFrame = requestAnimationFrame(() => {
@@ -105,25 +108,32 @@ try {
   editor.notice(errorMessage(error), "error");
 }
 
-window.addEventListener("beforeunload", (event) => {
-  if (state.exporting) {
-    event.preventDefault();
-    event.returnValue = "";
-  }
-});
-window.addEventListener("pagehide", () => {
-  editor.preferences?.dispose();
-  cancelAnimationFrame(refreshFrame);
-  disposeShortcuts?.();
-  editor.framing?.dispose();
-  editor.player?.dispose();
-  editor.timeline?.dispose();
-  editor.videoInfo?.dispose();
-  editor.exports?.dispose();
-  editor.sources?.dispose();
-  editor.measurements?.dispose();
-  profiles?.dispose();
-  editor.theory?.dispose();
-  if (state.videoURL) URL.revokeObjectURL(state.videoURL);
-  if (state.exportURL) URL.revokeObjectURL(state.exportURL);
+pageLifecycle = bindPageLifecycle({
+  isExporting: () => state.exporting,
+  suspend() {
+    editor.preferences?.flush();
+    editor.video.pause();
+    cancelAnimationFrame(refreshFrame);
+    refreshFrame = 0;
+    fullRefresh = false;
+  },
+  resume() {
+    editor.refresh();
+    if ($("video-editor").hidden) profiles?.activate();
+  },
+  dispose() {
+    editor.preferences?.dispose();
+    disposeShortcuts?.();
+    editor.framing?.dispose();
+    editor.player?.dispose();
+    editor.timeline?.dispose();
+    editor.videoInfo?.dispose();
+    editor.exports?.dispose();
+    editor.sources?.dispose();
+    editor.measurements?.dispose();
+    profiles?.dispose();
+    editor.theory?.dispose();
+    if (state.videoURL) URL.revokeObjectURL(state.videoURL);
+    if (state.exportURL) URL.revokeObjectURL(state.exportURL);
+  },
 });

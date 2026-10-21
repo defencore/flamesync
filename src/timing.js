@@ -10,24 +10,37 @@ const MEDIA_TIME_EPSILON = 1e-6;
 export function summarizeFrameTiming(timestamps, end, resolution) {
   if (!timestamps.length)
     throw new UserError("No video frame timestamps were found.");
+  if (!Number.isFinite(resolution) || resolution <= 0)
+    throw new RangeError("The video timestamp resolution must be positive and finite.");
+  if (!Number.isFinite(end) || end < timestamps[timestamps.length - 1])
+    throw new RangeError("The video end must not precede the final frame timestamp.");
+  if (!Number.isFinite(timestamps[0]) || timestamps[0] < 0)
+    throw new RangeError("Video presentation timestamps must be finite and nonnegative.");
   const intervals = new Float64Array(Math.max(0, timestamps.length - 1));
-  let count = 0;
   for (let i = 1; i < timestamps.length; i++) {
     const delta = timestamps[i] - timestamps[i - 1];
-    if (delta > 0) intervals[count++] = delta;
+    if (!Number.isFinite(timestamps[i]) || delta <= 0)
+      throw new RangeError("Video presentation timestamps must increase strictly.");
+    intervals[i - 1] = delta;
   }
-  const deltas = intervals.subarray(0, count).sort();
+  const deltas = intervals.sort();
   const median = deltas.length ? deltas[Math.floor(deltas.length / 2)] : 0;
   // Low-resolution containers can alternate between neighboring timestamp ticks.
   const tolerance = Math.max(2 / resolution, median * 0.02);
   const variable = deltas.some((delta) => Math.abs(delta - median) > tolerance);
   const span = timestamps[timestamps.length - 1] - timestamps[0];
+  const singleFrameRate = end > timestamps[0] ? 1 / (end - timestamps[0]) : 0;
+  const fps = span > 0 ? (timestamps.length - 1) / span : singleFrameRate;
+  const minFps = deltas.length ? 1 / deltas[deltas.length - 1] : singleFrameRate;
+  const maxFps = deltas.length ? 1 / deltas[0] : singleFrameRate;
+  if (![fps, minFps, maxFps].every(Number.isFinite))
+    throw new RangeError("The video frame rate exceeds the supported numeric range.");
   return {
     frameCount: timestamps.length,
-    fps: span > 0 ? (timestamps.length - 1) / span : 0,
+    fps,
     variable,
-    minFps: deltas.length ? 1 / deltas[deltas.length - 1] : 0,
-    maxFps: deltas.length ? 1 / deltas[0] : 0,
+    minFps,
+    maxFps,
     start: timestamps[0],
     end,
   };

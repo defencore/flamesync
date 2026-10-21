@@ -1,3 +1,5 @@
+import { linearValue } from "./signal-math.js";
+
 const finite = Number.isFinite;
 
 /** Reduce one native clock for display, retaining extrema and missing spans. */
@@ -44,12 +46,12 @@ export function mergeSignalCurves(thrustPoints, pressurePoints) {
       const exact = a?.t === time;
       const available = exact ? finite(a[key]) : a && b && !b.gapBefore && time > a.t && time < b.t;
       if (available) {
-        joined[key] = exact ? a[key] : a[key] + (b[key] - a[key]) * ((time - a.t) / (b.t - a.t));
+        joined[key] = exact ? a[key] : linearValue(a[key], b[key], (time - a.t) / (b.t - a.t));
         joined[`${key}GapBefore`] = output.length > 0 && (!previousAvailable[channel] || (exact && !!a.gapBefore));
         for (const suffix of ["Sd", "Min", "Max", "N"]) {
           const field = `${key}${suffix}`;
           if (field in a) joined[field] = exact ? a[field] :
-            finite(a[field]) && finite(b[field]) ? a[field] + (b[field] - a[field]) * ((time - a.t) / (b.t - a.t)) : null;
+            finite(a[field]) && finite(b[field]) ? linearValue(a[field], b[field], (time - a.t) / (b.t - a.t)) : null;
         }
       }
       previousAvailable[channel] = !!available;

@@ -17,6 +17,7 @@
     "test:templates": "node tests/templates-browser-runner.mjs",
     "test:preferences": "node tests/preferences-browser-runner.mjs",
     "test:custom-csv": "node tests/custom-csv-browser-runner.mjs",
+    "test:lifecycle": "node tests/lifecycle-browser-runner.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

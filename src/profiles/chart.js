@@ -1,17 +1,11 @@
 import { displayPressure, displayThrust } from "../units.js";
 import { textLines } from "../canvas-text.js";
+import { niceStep, valueAxis, axisFraction } from "../plot-axis.js";
+import { linearValue } from "../signal-math.js";
 
 const font = "system-ui, -apple-system, sans-serif";
 const clamp = (value, minimum, maximum) =>
   Math.max(minimum, Math.min(maximum, value));
-
-function niceStep(value) {
-  const magnitude = 10 ** Math.floor(Math.log10(value || 1));
-  return (
-    [1, 2, 2.5, 5, 10].find((factor) => factor * magnitude >= value) *
-    magnitude
-  );
-}
 
 function ticksBetween(start, end, step) {
   const first = Math.ceil((start - step * 1e-10) / step) * step;
@@ -22,19 +16,6 @@ function ticksBetween(start, end, step) {
     ticks.push(Math.abs(value) < step * 1e-10 ? 0 : value);
   }
   return ticks;
-}
-
-function axisRange(minimum, maximum, count) {
-  let low = Math.min(0, minimum);
-  let high = Math.max(0, maximum);
-  const span = high - low || 1;
-  if (low < 0) low -= span * 0.06;
-  if (high > 0) high += span * 0.06;
-  if (high === low) high = low + span;
-  const step = niceStep((high - low) / count);
-  low = Math.floor(low / step) * step;
-  high = Math.max(low + step, Math.ceil(high / step) * step);
-  return { min: low, max: high, step, ticks: ticksBetween(low, high, step) };
 }
 
 function numberLabel(value, step) {
@@ -87,7 +68,7 @@ function sampleAtX(series, x) {
   const before = index - 1;
   const interval = xs[index] - xs[before];
   if (!interval) return null;
-  return ys[before] + ((x - xs[before]) / interval) * (ys[index] - ys[before]);
+  return linearValue(ys[before], ys[index], (x - xs[before]) / interval);
 }
 
 /**
@@ -289,7 +270,7 @@ export function createProfileChart(canvas, callbacks = {}) {
       minimum = 0;
       maximum = 1;
     }
-    const axis = axisRange(minimum, maximum, clamp(Math.floor(height / 65), 3, 7));
+    const axis = valueAxis(minimum, maximum, { intervals: clamp(Math.floor(height / 65), 3, 7), padNegative: true });
     ctx.font = `11px ${font}`;
     const labelWidth = Math.max(
       0,
@@ -310,7 +291,7 @@ export function createProfileChart(canvas, callbacks = {}) {
       xTicks: ticksBetween(view.start, view.end, step),
       toX: (x) => plot.x + ((x - view.start) / (view.end - view.start)) * plot.width,
       fromX: (x) => view.start + ((x - plot.x) / plot.width) * (view.end - view.start),
-      toY: (y) => plot.y + plot.height - ((y - axis.min) / (axis.max - axis.min)) * plot.height,
+      toY: (y) => plot.y + plot.height - axisFraction(y, axis) * plot.height,
     };
     layoutKey = key;
     return layout;

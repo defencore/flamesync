@@ -5,11 +5,12 @@ import { summarizeFrameTiming } from "./timing.js";
 
 /** @param {MessageEvent<{file:File}>} event */
 self.onmessage = async ({ data: { file } }) => {
-  const input = new Input({
-    source: new BlobSource(file),
-    formats: ALL_FORMATS,
-  });
+  let input;
   try {
+    input = new Input({
+      source: new BlobSource(file),
+      formats: ALL_FORMATS,
+    });
     const track = await input.getPrimaryVideoTrack();
     if (!track) throw new UserError("No video track was found.");
     const sink = new EncodedPacketSink(track);
@@ -18,10 +19,18 @@ self.onmessage = async ({ data: { file } }) => {
     for await (const packet of sink.packets(undefined, undefined, {
       metadataOnly: true,
     })) {
-      if (packet.timestamp >= 0) values.push(packet.timestamp);
+      if (
+        !Number.isFinite(packet.timestamp) ||
+        !Number.isFinite(packet.duration) ||
+        packet.duration < 0
+      )
+        throw new RangeError("The video contains invalid frame timestamps or durations.");
+      if (packet.timestamp >= 0) {
+        values.push(packet.timestamp);
+        if (values.length % 10000 === 0)
+          self.postMessage({ type: "progress", frames: values.length });
+      }
       end = Math.max(end, packet.timestamp + packet.duration);
-      if (values.length % 10000 === 0)
-        self.postMessage({ type: "progress", frames: values.length });
     }
     // Decode order may differ from presentation order (for example H.264 B frames).
     const sorted = Float64Array.from(values).sort();
@@ -48,6 +57,6 @@ self.onmessage = async ({ data: { file } }) => {
       error: errorMessage(error),
     });
   } finally {
-    input.dispose();
+    input?.dispose();
   }
 };

@@ -12,6 +12,7 @@ import {
 } from "../src/overlay.js";
 import { parseCSV, chartPoints } from "../src/data.js";
 import { presentationScale } from "../src/composition-layout.js";
+import { drawMeasurementChart } from "../src/measurement-chart.js";
 
 function recordingContext(width, height) {
   const transforms = [];
@@ -93,6 +94,7 @@ function recordingContext(width, height) {
         width: width * transform.sx, height: height * transform.sy };
     },
     clip() { if (rectangle) this.clips.push({ ...rectangle }); },
+    clearRect() {},
     fillRect(x, y, width, height) {
       this.fills.push({ color: this.fillStyle,
         x: transform.x + x * transform.sx, y: transform.y + y * transform.sy,
@@ -122,6 +124,19 @@ const populated = {
 };
 const log = () =>
   parseCSV("time_ms;thrust;pressure\n0;0;0\n100;10;2\n200;100;20\n300;0;0");
+
+test("finite signals spanning opposite numeric extremes retain finite plot coordinates", () => {
+  const data = parseCSV("time_s;thrust;pressure\n0;-1e308;0\n0.00001;1e308;1e308\n0.00002;0;0");
+  for (const layout of ["full", "overlay", "stacked", "measurement"]) {
+    const ctx = recordingContext(1920, 1080);
+    if (layout === "measurement")
+      drawMeasurementChart(ctx, 1920, 1080, data, chartPoints(data), null, { thrustUnit: "N", pressureUnit: "bar" });
+    else render(ctx, { data, style: { layout }, time: 0.00001 });
+    assert.ok(ctx.strokes.length > 0);
+    assert.ok(ctx.strokes.every(({ points }) => points.every(({ x, y }) => Number.isFinite(x) && Number.isFinite(y))), layout);
+    assert.ok(ctx.texts.every(({ value }) => !/Infinity|NaN/.test(value)), layout);
+  }
+});
 
 const source = {
   width: 1920,
