@@ -45,9 +45,9 @@ export function createExportController(editor) {
       return;
     }
     const overlaps =
-      videoTimeAt(state.data.end, state.offset, state.timeScale) >
+      videoTimeAt(state.data.overallEnd, state.offset, state.timeScale) >
         state.start &&
-      videoTimeAt(state.data.start, state.offset, state.timeScale) < state.end;
+      videoTimeAt(state.data.overallStart, state.offset, state.timeScale) < state.end;
     if (!overlaps) {
       editor.notice(
         "The CSV is outside the selected video range. Adjust its offset or the trim range before exporting.",

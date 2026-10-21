@@ -302,11 +302,14 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
     ctx.lineJoin = "round";
     ctx.setLineDash(dashed ? [6, 3] : []);
     ctx.beginPath();
-    points.forEach((point, i) => {
+    let connected = false;
+    points.forEach((point) => {
+      if (!Number.isFinite(point[key])) { connected = false; return; }
       const px = x(mapping.offset + point.t * mapping.scale, box);
       const py = y(point[key], key);
-      if (!i || point.gapBefore) ctx.moveTo(px, py);
+      if (!connected || point[`${key}GapBefore`]) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
+      connected = true;
     });
     if (stacked) {
       ctx.strokeStyle = "#071018";
@@ -353,7 +356,7 @@ function drawSignalPlots(ctx, geometry, data, reduced, t, sample, style, measure
       }
       ctx.stroke();
       ctx.setLineDash([]);
-      if (sample) {
+      if (Number.isFinite(sample?.[key])) {
         ctx.fillStyle = colors[key];
         ctx.beginPath();
         ctx.arc(x(t, box), y(sample[key], key), 3.5, 0, Math.PI * 2);
@@ -464,9 +467,9 @@ export function drawOverlay(
   const sample = sampleAt(data, t);
   const phase = !data
     ? "AWAITING CSV"
-    : t < data.start
+    : t < data.overallStart
       ? "AWAITING DATA"
-      : t > data.end
+      : t > data.overallEnd
         ? "TEST COMPLETE"
         : sample
           ? "TELEMETRY"

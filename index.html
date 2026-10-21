@@ -14,6 +14,7 @@
     <meta name="theme-color" content="#f6f7f5" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/csv-mapping.css" />
     <title data-i18n="FlameSync — Burn Video Studio">
       FlameSync — Burn Video Studio
     </title>
@@ -183,6 +184,7 @@
         <summary><span data-i18n="Theoretical profile · optional CSV">Theoretical profile · optional CSV</span><span id="theory-name" class="small muted"></span></summary>
         <div class="theory-body">
           <div class="theory-file-row"><button id="theory-add" class="button secondary" data-i18n="Add theoretical CSV">Add theoretical CSV</button><input id="theory-input" type="file" accept=".csv,.tsv,.txt,text/csv" hidden><label class="theory-toggle"><input id="theory-enabled" type="checkbox" checked><span data-i18n="Show theory">Show theory</span></label><button id="theory-remove" class="text-button" disabled data-i18n="Remove">Remove</button><button class="info-button" aria-label="About theoretical profiles" data-i18n-aria-label="About theoretical profiles" data-help="Load a calculation or simulation CSV with the same time, thrust, and pressure columns as a measured log. Source thrust defaults to kilogram-force (kgf, often written kg); pressure defaults to bar. Theory is shared by all workspaces and never counts as a measured test. Analysis uses its selected profile alignment; the timing controls below apply to video only. Original impulse and duration are never changed by display alignment." data-i18n-data-help="Load a calculation or simulation CSV with the same time, thrust, and pressure columns as a measured log. Source thrust defaults to kilogram-force (kgf, often written kg); pressure defaults to bar. Theory is shared by all workspaces and never counts as a measured test. Analysis uses its selected profile alignment; the timing controls below apply to video only. Original impulse and duration are never changed by display alignment.">i</button></div>
+          <button id="theory-columns" type="button" class="text-button csv-columns-button" disabled data-i18n="Columns…">Columns…</button>
           <div class="theory-input-grid">
             <label><span data-i18n="CSV time unit">CSV time unit</span><select id="theory-time-unit"><option value="auto" data-i18n="From header · ms / µs / s">From header · ms / µs / s</option><option value="ms">ms</option><option value="us">µs</option><option value="s">s</option></select></label>
             <label><span data-i18n="CSV thrust">CSV thrust</span><select id="theory-thrust-unit"><option>N</option><option>kN</option><option selected>kgf</option><option>gf</option><option>lbf</option></select></label>
@@ -447,6 +449,7 @@
                     <span>↗</span>
                   </button>
                 </div>
+                <button type="button" id="csv-columns" class="button secondary csv-columns-button" disabled data-i18n="Columns…">Columns…</button>
                 <label class="field"
                   ><span data-i18n="CSV time unit">CSV time unit</span
                   ><select id="csv-time-unit">
@@ -2266,6 +2269,7 @@
               <p class="small muted" data-i18n="Applies to new files. Existing profiles have their own source units.">
                 Applies to new files. Existing profiles have their own source units.
               </p>
+              <button type="button" id="profiles-columns" class="text-button csv-columns-button" data-i18n="Columns…">Columns…</button>
             </details>
             <div id="profiles-drop" class="profile-drop" tabindex="0" role="button" aria-label="Add CSV logs" data-i18n-aria-label="Add CSV logs">
               <strong data-i18n="Drop multiple CSV files here">
@@ -2672,6 +2676,79 @@
       </footer>
     </main>
     <video id="source-video" playsinline muted preload="auto" hidden></video>
+    <dialog id="csv-mapping-dialog" aria-labelledby="csv-map-title">
+      <form id="csv-mapping-form" novalidate>
+        <div class="csv-map-top">
+          <div>
+            <h2 id="csv-map-title" data-i18n="CSV columns">CSV columns</h2>
+            <span id="csv-map-filename" class="small muted"></span>
+          </div>
+          <button id="csv-map-close" type="button" class="icon-button" aria-label="Close column setup" data-i18n-aria-label="Close column setup">×</button>
+        </div>
+        <div class="csv-map-content">
+          <div class="csv-map-file-options">
+            <label class="csv-map-checkbox"><input id="csv-map-header" type="checkbox" checked><span data-i18n="First row contains column names">First row contains column names</span></label>
+            <details class="csv-map-help">
+              <summary aria-label="About CSV columns" data-i18n-aria-label="About CSV columns">i</summary>
+              <p data-i18n="Choose columns by number. Thrust and pressure can share one clock or use separate time columns. Source timestamps are kept; different sample rates are synchronized by time, not by row number.">Choose columns by number. Thrust and pressure can share one clock or use separate time columns. Source timestamps are kept; different sample rates are synchronized by time, not by row number.</p>
+            </details>
+          </div>
+          <div class="csv-map-channels">
+            <section class="csv-map-card" aria-labelledby="csv-map-thrust-title">
+              <h3 id="csv-map-thrust-title" data-i18n="Thrust channel">Thrust channel</h3>
+              <div class="csv-map-row">
+                <label><span data-i18n="Time column">Time column</span><select id="csv-map-thrust-time"></select></label>
+                <label><span data-i18n="Time unit">Time unit</span><select id="csv-map-time-unit"><option value="auto" data-i18n="From column name">From column name</option><option value="ms">ms</option><option value="us">µs</option><option value="s">s</option></select></label>
+              </div>
+              <div class="csv-map-row">
+                <label><span data-i18n="Value column">Value column</span><select id="csv-map-thrust"></select></label>
+                <label><span data-i18n="Source unit">Source unit</span><select id="csv-map-thrust-unit"><option>kgf</option><option>N</option><option>kN</option><option>gf</option><option>lbf</option></select></label>
+              </div>
+            </section>
+            <section class="csv-map-card" aria-labelledby="csv-map-pressure-title">
+              <h3 id="csv-map-pressure-title" data-i18n="Pressure channel">Pressure channel</h3>
+              <div class="csv-map-row">
+                <label><span data-i18n="Time column">Time column</span><select id="csv-map-pressure-time"></select></label>
+                <label><span data-i18n="Time unit">Time unit</span><select id="csv-map-pressure-time-unit"><option value="auto" data-i18n="From column name">From column name</option><option value="same" data-i18n="Same as thrust time">Same as thrust time</option><option value="ms">ms</option><option value="us">µs</option><option value="s">s</option></select></label>
+              </div>
+              <div class="csv-map-row">
+                <label><span data-i18n="Value column">Value column</span><select id="csv-map-pressure"></select></label>
+                <label><span data-i18n="Source unit">Source unit</span><select id="csv-map-pressure-unit"><option>bar</option><option>Pa</option><option>MPa</option><option>kPa</option><option>psi</option><option>atm</option></select></label>
+              </div>
+            </section>
+          </div>
+          <div class="csv-map-file-options">
+            <label class="csv-map-checkbox"><input id="csv-map-sparse" type="checkbox"><span data-i18n="Allow empty samples">Allow empty samples</span></label>
+            <details class="csv-map-help">
+              <summary aria-label="About empty samples" data-i18n-aria-label="About empty samples">i</summary>
+              <p data-i18n="A blank selected value means no new sample for that channel. Nonblank times and values must be valid numbers. Long gaps are not interpolated.">A blank selected value means no new sample for that channel. Nonblank times and values must be valid numbers. Long gaps are not interpolated.</p>
+            </details>
+          </div>
+          <section class="csv-map-markers" aria-labelledby="csv-map-markers-title">
+            <div class="csv-map-heading">
+              <h3 id="csv-map-markers-title" data-i18n="Burn event markers">Burn event markers</h3>
+              <details class="csv-map-help">
+                <summary aria-label="About burn event columns" data-i18n-aria-label="About burn event columns">i</summary>
+                <p data-i18n="Optional flags use 0/1 or false/true. Active state marks the burning interval; separate start/end flags mark individual events. Event times use the selected thrust time column. Without flags, burn events are detected from thrust and can be adjusted manually.">Optional flags use 0/1 or false/true. Active state marks the burning interval; separate start/end flags mark individual events. Event times use the selected thrust time column. Without flags, burn events are detected from thrust and can be adjusted manually.</p>
+              </details>
+            </div>
+            <select id="csv-map-marker-mode" aria-labelledby="csv-map-markers-title"><option value="none" data-i18n="No event columns · detect from thrust">No event columns · detect from thrust</option><option value="active" data-i18n="Active state · 0 → 1 → 0">Active state · 0 → 1 → 0</option><option value="events" data-i18n="Separate start and end flags">Separate start and end flags</option></select>
+            <label id="csv-map-active-field" hidden><span data-i18n="Active-state column">Active-state column</span><select id="csv-map-active"></select></label>
+            <div id="csv-map-event-fields" class="csv-map-marker-grid" hidden>
+              <label><span data-i18n="Start flag column">Start flag column</span><select id="csv-map-start"></select></label>
+              <label><span data-i18n="End flag column">End flag column</span><select id="csv-map-end"></select></label>
+            </div>
+            <p id="csv-map-marker-note" class="muted" hidden data-i18n="Flags: 0/1 or false/true · event clock: thrust time">Flags: 0/1 or false/true · event clock: thrust time</p>
+          </section>
+          <section class="csv-map-preview" aria-labelledby="csv-map-preview-title">
+            <div class="csv-map-heading"><h3 id="csv-map-preview-title" data-i18n="File preview">File preview</h3><span class="small muted" data-i18n="First 5 data rows">First 5 data rows</span></div>
+            <div class="csv-map-preview-scroll" tabindex="0" role="region" aria-labelledby="csv-map-preview-title"><table><thead id="csv-map-preview-head"></thead><tbody id="csv-map-preview-body"></tbody></table></div>
+          </section>
+          <p id="csv-map-error" role="alert" tabindex="-1" hidden></p>
+        </div>
+        <div class="csv-map-actions"><button id="csv-map-cancel" type="button" class="button secondary" data-i18n="Cancel">Cancel</button><button id="csv-map-apply" type="submit" class="button primary" data-i18n="Apply columns">Apply columns</button></div>
+      </form>
+    </dialog>
     <dialog id="export-dialog" aria-labelledby="export-dialog-title">
       <div class="dialog-symbol">
         <svg class="icon"><use href="#i-download" /></svg>

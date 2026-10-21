@@ -84,6 +84,7 @@ try {
     notice: editor.notice,
     onChange(snapshot) {
       state.theory = snapshot;
+      editor.preferences.saveTheorySettings(snapshot.importSettings);
       profiles.setTheory(snapshot);
       editor.refresh();
     },

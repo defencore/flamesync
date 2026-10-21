@@ -6,13 +6,24 @@ import { demoCSV, createDemo } from "./demo.js";
 import { downloadBlob } from "./files.js";
 import { DEFAULT_CSV_SETTINGS } from "./units.js";
 import { DEFAULT_VIDEO_FRAMING } from "./video-framing.js";
+import { configureCSV } from "./csv-mapping.js";
+
+const clockIdentity = (settings) => JSON.stringify([
+  settings.timeUnit, settings.hasHeader, settings.columns?.thrustTime,
+]);
+const eventIdentity = (settings) => JSON.stringify([
+  settings.allowSparse,
+  ...["thrust", "markerMode", "active", "start", "end"].map((key) => settings.columns?.[key]),
+]);
 export function createSourceController(editor) {
   const { state, video } = editor;
   let videoVersion = 0,
     csvVersion = 0,
     csvTask = null,
-    csvCandidate = null;
+    csvCandidate = null,
+    forceNextCSV = false;
   const readSettings = () => ({
+    ...state.csvSettings,
     timeUnit: $("csv-time-unit").value,
     thrustUnit: $("source-thrust-unit").value,
     pressureUnit: $("source-pressure-unit").value,
@@ -50,12 +61,14 @@ export function createSourceController(editor) {
   }
   async function loadCSV(
     file,
-    { preserveSync = false, settings = editor.preferences.csvImportSettings(), rememberSettings = false } = {},
+    { preserveSync = false, settings = editor.preferences.csvImportSettings(), rememberSettings = false,
+      configure = true, force = false } = {},
   ) {
     const version = ++csvVersion;
     csvCandidate = file;
     csvTask?.cancel();
     state.csvLoading = true;
+    $("csv-columns").disabled = true;
     editor.refresh();
     let task;
     try {
@@ -63,6 +76,16 @@ export function createSourceController(editor) {
         throw new UserError(
           "This CSV exceeds 50 MB. Export a smaller telemetry log first.",
         );
+      if (configure) {
+        settings = await configureCSV(file, settings, { force });
+        if (version !== csvVersion) return;
+        if (!settings) { csvCandidate = state.csvFile; return; }
+      }
+      if (version !== csvVersion) return;
+      const sameFile = file === state.csvFile;
+      const resetClock = !sameFile || clockIdentity(settings) !== clockIdentity(state.csvSettings);
+      const resetEvents = resetClock || eventIdentity(settings) !== eventIdentity(state.csvSettings);
+      preserveSync = sameFile && !resetClock;
       task = readCSV(file, { ...settings });
       csvTask = task;
       const { data: parsed, reduced } = await task.promise;
@@ -77,9 +100,13 @@ export function createSourceController(editor) {
         state.timeScale = 1;
         state.offset = 0;
         editor.timeline.clearFeedback();
-        editor.timeline.resetAnchors();
         editor.edits.reset();
+      }
+      if (resetEvents) {
+        editor.timeline.clearFeedback();
+        editor.timeline.resetAnchors();
         editor.measurements.detect();
+        if (preserveSync) editor.edits.reset();
       }
       $("csv-end-anchor").min = String(parsed.start);
       $("csv-end-anchor").max = String(parsed.end);
@@ -94,14 +121,18 @@ export function createSourceController(editor) {
       $("csv-drop").classList.add("loaded");
       $("csv-track-name").textContent = file.name;
       editor.refresh();
-      if (!preserveSync) editor.timeline.populateEvents();
+      if (!preserveSync || resetEvents) editor.timeline.populateEvents();
       editor.notice(parsed.warnings, "warning");
     } catch (error) {
-      if (version === csvVersion) editor.notice(errorMessage(error), "error");
+      if (version === csvVersion) {
+        if (state.csvFile) csvCandidate = state.csvFile;
+        editor.notice(errorMessage(error), "error");
+      }
     } finally {
       if (csvTask === task) csvTask = null;
       if (version === csvVersion) {
         state.csvLoading = false;
+        $("csv-columns").disabled = false;
         for (const [id, key] of [
           ["csv-time-unit", "timeUnit"],
           ["source-thrust-unit", "thrustUnit"],
@@ -124,6 +155,7 @@ export function createSourceController(editor) {
         loadCSV(csvCandidate, {
           settings,
           rememberSettings: true,
+          configure: false,
           preserveSync:
             csvCandidate === state.csvFile &&
             settings.timeUnit === state.csvSettings.timeUnit,
@@ -134,6 +166,11 @@ export function createSourceController(editor) {
       }
     };
   }
+  $("csv-columns").onclick = () => {
+    if (state.csvLoading || state.exporting) return;
+    if (state.csvFile) loadCSV(state.csvFile, { settings: state.csvSettings, force: true, preserveSync: true });
+    else { forceNextCSV = true; $("csv-input").click(); }
+  };
 
   async function loadVideo(file) {
     const version = ++videoVersion;
@@ -249,7 +286,10 @@ export function createSourceController(editor) {
   ]) {
     $(`${kind}-input`).addEventListener("change", (event) => {
       const file = event.target.files[0];
-      if (file) loader(file);
+      if (file) {
+        if (kind === "csv") { loadCSV(file, { force: forceNextCSV }); forceNextCSV = false; }
+        else loader(file);
+      }
       event.target.value = "";
     });
   }

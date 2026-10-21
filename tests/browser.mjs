@@ -1009,13 +1009,15 @@ async function verifyLogUnits(fixture) {
     mimeType: "text/csv",
     buffer: Buffer.from("time;thrust;pressure\n0;0;0\n100000;10;1\n200000;0;0"),
   });
-  await editor.waitForFunction(() =>
-    document.querySelector("#notice").textContent.includes("no unit"),
-  );
-  await select("csv-time-unit", "us", editor);
+  await editor.locator("#csv-mapping-dialog").waitFor({ state: "visible" });
+  await select("csv-map-time-unit", "us", editor);
+  await editor.locator("#csv-map-apply").click();
+  await editor.locator("#csv-mapping-dialog").waitFor({ state: "hidden" });
   await editor.waitForFunction(
-    () => document.querySelector("#summary-duration").textContent === "0.200 s",
+    () => document.querySelector("#csv-filename").textContent === "generic-time.csv" &&
+      !document.querySelector("#clear-settings").disabled,
   );
+  assert.equal(await editor.locator("#summary-duration").textContent(), "0.200 s");
   assert.equal(await editor.locator("#sync-offset").inputValue(), "0.000");
   assert.match(
     await editor.locator("#csv-units-summary").textContent(),
@@ -1445,6 +1447,8 @@ try {
   await page.mouse.move(handle.x + 23, handle.y + 10, { steps: 4 });
   await page.mouse.up();
   assert.ok(Number(await page.locator("#trim-start").inputValue()) > 1);
+  await page.waitForFunction(() => !document.querySelector("#source-video").seeking);
+  await settle(page);
   await change("trim-start", 1);
   await seek(3);
   const previousOffset = await page.locator("#sync-offset").inputValue();
@@ -1507,6 +1511,7 @@ try {
 
   // Stretching is optional and keeps original logger measurements intact.
   await page.locator("#analysis-controls > summary").click();
+  await settle(page);
   await change("sync-offset", -0.25);
   const csvAnchor = Number(await page.locator("#csv-anchor").inputValue());
   const anchorVideo = -0.25 + csvAnchor;
@@ -1517,6 +1522,11 @@ try {
         csvAnchor * 1.5 -
         anchorVideo,
     ) < 0.001,
+    `Stretching must preserve the ignition pivot: ${JSON.stringify({
+      anchor: csvAnchor, expectedVideo: anchorVideo,
+      scale: await page.locator("#stretch-percent").inputValue(),
+      offset: await page.locator("#sync-offset").inputValue(),
+    })}`,
   );
   await change("stretch-percent", 0);
   assert.equal(await page.locator("#stretch-percent").inputValue(), "150.000");
@@ -1538,6 +1548,7 @@ try {
     initialLeft,
   );
   await page.locator("#two-point-controls > summary").click();
+  await settle(page);
   await change("point-a-csv", 0.5);
   await seek(1);
   await click("capture-a");

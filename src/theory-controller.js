@@ -2,6 +2,7 @@ import { $ } from "./dom.js";
 import { bindText } from "./i18n.js";
 import { errorMessage, message } from "./messages.js";
 import { alignTheory, validateTheoryMapping } from "./theory.js";
+import { configureCSV } from "./csv-mapping.js";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const UNIT_FIELDS = [
@@ -12,9 +13,13 @@ const UNIT_FIELDS = [
 const EVENT_FIELDS = [["theory-start", "start"], ["theory-end", "end"]];
 const CONTROL_IDS = [...UNIT_FIELDS.map(([id]) => id),
   ...EVENT_FIELDS.map(([id]) => id), "theory-detect", "theory-alignment",
-  "theory-offset", "theory-scale"];
+  "theory-offset", "theory-scale", "theory-columns"];
 const precise = (value) => Number.isFinite(value) ? String(Number(value.toFixed(6))) : "";
 const userMessage = (error) => error?.userMessage ?? errorMessage(error);
+const eventIdentity = (settings) => JSON.stringify([
+  settings.timeUnit, settings.hasHeader, settings.allowSparse,
+  ...["thrustTime", "thrust", "markerMode", "active", "start", "end"].map((key) => settings.columns?.[key]),
+]);
 
 export function createTheoryController({ onChange = () => {}, notice = () => {} } = {}) {
   let file = null, data = null, reduced = [], stats = null;
@@ -27,6 +32,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
   let mode = importMode, offset = 0, scale = 1;
   let statusError = null, sequence = 0, revision = 0, sourceSequence = 0;
   let sourceKey = "", worker = null, disposed = false, currentSnapshot;
+  let forceNextImport = false;
   const pending = new Map();
 
   function stopWorker() {
@@ -165,7 +171,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     return true;
   }
   async function analyze({ candidateFile = file, candidateSettings = settings,
-    candidateOptions = options, replacement = false, reparse = false } = {}) {
+    candidateOptions = options, replacement = false, reparse = false, rememberUnits = false } = {}) {
     if (!candidateFile) {
       valid = sourceValid && timingValid;
       statusError = sourceError;
@@ -196,6 +202,7 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
       file = candidateFile;
       if (replacement) mode = importMode;
       settings = { ...candidateSettings };
+      if (rememberUnits) importSettings = Object.fromEntries(UNIT_FIELDS.map(([, key]) => [key, settings[key]]));
       sourceSettings = { ...settings };
       options = { ...candidateOptions };
       sourceKey = key;
@@ -215,23 +222,50 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     } catch (error) {
       if (disposed || jobRevision !== revision || error.name === "AbortError") return;
       loading = false;
-      sourceValid = replacement ? previousSourceValid : false;
-      sourceError = replacement ? previousSourceError : userMessage(error);
+      sourceValid = replacement || reparse ? previousSourceValid : false;
+      sourceError = replacement || reparse ? previousSourceError : userMessage(error);
       valid = sourceValid && timingValid;
       statusError = userMessage(error);
-      if (!replacement)
-        for (const [id] of reparse ? UNIT_FIELDS : EVENT_FIELDS) $(id).setAttribute("aria-invalid", "true");
-      publish({ fields: replacement });
+      if (reparse) clearInvalid();
+      else if (!replacement)
+        for (const [id] of EVENT_FIELDS) $(id).setAttribute("aria-invalid", "true");
+      publish({ fields: replacement || reparse });
+      notice(statusError, "error");
+    }
+  }
+  async function configureSource(candidateFile, { force = false, replacement = false } = {}) {
+    const jobRevision = ++revision;
+    loading = true;
+    statusError = null;
+    publish();
+    try {
+      if (candidateFile.size > MAX_FILE_BYTES)
+        throw Object.assign(new Error(), { userMessage: message("The theoretical CSV must be no larger than 20 MB.") });
+      const candidateSettings = await configureCSV(candidateFile, replacement ? { ...importSettings } : settings, { force });
+      if (disposed || revision !== jobRevision) return;
+      loading = false;
+      if (!candidateSettings) { publish({ fields: true }); return; }
+      const candidateOptions = replacement || eventIdentity(settings) !== eventIdentity(candidateSettings) ? {} : options;
+      await analyze({ candidateFile, candidateSettings, candidateOptions, replacement, reparse: true });
+    } catch (error) {
+      if (disposed || revision !== jobRevision || error.name === "AbortError") return;
+      loading = false;
+      statusError = userMessage(error);
+      publish({ fields: true });
       notice(statusError, "error");
     }
   }
   $("theory-add").onclick = () => $("theory-input").click();
+  $("theory-columns").onclick = () => {
+    if (loading) return;
+    if (file) configureSource(file, { force: true });
+    else { forceNextImport = true; $("theory-input").click(); }
+  };
   $("theory-input").onchange = (event) => {
     const candidateFile = event.target.files[0];
     event.target.value = "";
-    if (candidateFile)
-      analyze({ candidateFile, candidateSettings: { ...importSettings },
-        candidateOptions: {}, replacement: true });
+    if (candidateFile) configureSource(candidateFile, { replacement: true, force: forceNextImport });
+    forceNextImport = false;
   };
   $("theory-remove").onclick = () => {
     ++revision;
@@ -260,13 +294,14 @@ export function createTheoryController({ onChange = () => {}, notice = () => {} 
     publish();
   };
   for (const [id, key] of UNIT_FIELDS) $(id).onchange = () => {
-    const nextSettings = Object.fromEntries(UNIT_FIELDS.map(([input, name]) => [name, $(input).value]));
-    importSettings = { ...nextSettings };
-    settings = nextSettings;
+    const nextUnits = Object.fromEntries(UNIT_FIELDS.map(([input, name]) => [name, $(input).value]));
+    const nextSettings = { ...settings, ...nextUnits };
     if (!file) {
+      importSettings = { ...nextUnits };
+      settings = nextSettings;
       publish();
     } else analyze({ candidateSettings: nextSettings,
-      candidateOptions: key === "timeUnit" ? {} : options, reparse: true });
+      candidateOptions: key === "timeUnit" ? {} : options, reparse: true, rememberUnits: true });
   };
   for (const [id, key] of EVENT_FIELDS) $(id).onchange = () => {
     const input = $(id);

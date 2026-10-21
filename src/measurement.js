@@ -9,6 +9,13 @@ export function detectBurnInterval(data, percent = 5) {
       "Detection threshold must be greater than 0% and less than 100%.",
     );
   const threshold = (data.peakThrust * percent) / 100;
+  if (data.events) {
+    const warnings = [];
+    if (data.events.start === null) warnings.push(message("No ignition indicator was found. Set A manually."));
+    if (data.events.end === null) warnings.push(message("No burnout indicator was found. Set B manually."));
+    if (data.events.periods > 1) warnings.push(message("Multiple thrust periods: the interval spans the first rise to the final decay, including pauses."));
+    return { start: data.events.start, end: data.events.end, threshold, periods: data.events.periods, warnings };
+  }
   const points = data.points;
   if (data.peakThrust <= 0)
     return {
@@ -23,7 +30,7 @@ export function detectBurnInterval(data, percent = 5) {
   const first = points.findIndex((point) => point.thrust >= threshold);
   let last = points.length - 1;
   while (last >= 0 && points[last].thrust < threshold) last--;
-  /** @param {import('./data.js').DataPoint} a @param {import('./data.js').DataPoint} b */
+  /** @param {import('./data.js').ThrustPoint} a @param {import('./data.js').ThrustPoint} b */
   const crossing = (a, b) =>
     a.t + ((threshold - a.thrust) / (b.thrust - a.thrust)) * (b.t - a.t);
   const riseA = points[first - 1],

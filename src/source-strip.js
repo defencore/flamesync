@@ -2,6 +2,7 @@ import { dataTimeAt, logPositionAt } from "./data.js";
 import { frameInfoAt } from "./timing.js";
 import { presentationScale } from "./composition-layout.js";
 import { filenameLabel, textLines } from "./canvas-text.js";
+import { logRowNumbers, logRateLabel } from "./log-details.js";
 
 const sourceLabels = new WeakMap();
 
@@ -64,7 +65,7 @@ export function drawSourceStrip(
     : null;
   const csvTime = dataTimeAt(videoTime, offset, timeScale);
   const log = logPositionAt(data, csvTime);
-  const csvPosition = log?.first
+  const csvPosition = data?.separateTime ? `Rows ${logRowNumbers(data, csvTime)}` : log?.first
     ? `CSV row ${log.first.line}${
         log.second ? ` → ${log.second.line}` : ""
       }${log.phase === "gap" ? " · GAP" : ""}`
@@ -76,10 +77,7 @@ export function drawSourceStrip(
             : ""
       }`;
   const fps = source?.fps > 0 ? `${Number(source.fps.toFixed(2))} fps` : "";
-  const rate =
-    data?.duration > 0
-      ? `${((data.points.length - 1) / data.duration).toFixed(1)} Hz`
-      : "";
+  const rate = logRateLabel(data);
   const rows = [
     [
       "VIDEO",

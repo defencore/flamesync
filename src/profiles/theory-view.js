@@ -9,9 +9,9 @@ export function theoryValues(record, theory) {
   return {
     theoryImpulseChange: complete && expected?.coverage >= 1 - 1e-10 && expected.impulse > 0 && Number.isFinite(stats.impulse) ? (stats.impulse / expected.impulse - 1) * 100 : null,
     theoryDurationChange: stats?.duration > 0 && expected?.duration > 0 ? (stats.duration / expected.duration - 1) * 100 : null,
-    theoryThrustRmse: difference?.thrust.rmse ?? null,
-    theoryPressureRmse: difference?.pressure.rmse ?? null,
-    theoryThrustBias: difference?.thrust.bias ?? null,
+    theoryThrustRmse: difference?.thrust?.rmse ?? null,
+    theoryPressureRmse: difference?.pressure?.rmse ?? null,
+    theoryThrustBias: difference?.thrust?.bias ?? null,
     theoryCoverage: difference ? difference.coverage * 100 : null,
   };
 }

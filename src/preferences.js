@@ -148,12 +148,10 @@ export function createPreferencesController(editor) {
     const id = event.target.id, field = fields.get(id);
     if (!field?.node) return;
     // CSV units commit only after their asynchronous parse succeeds.
-    if (id in CSV_FIELDS) return;
+    if (id in CSV_FIELDS || id in THEORY_FIELDS) return;
     const value = field.boolean ? field.node.checked : field.node.value;
     if (!valid(field, value, id) || field.node.validity?.badInput) return;
     values[id] = value;
-    if (id in THEORY_FIELDS)
-      for (const [unitId, key] of Object.entries(THEORY_FIELDS)) values[unitId] = theory.snapshot().importSettings[key];
     if (id === "presentation-layout") {
       values["overlay-opacity"] = String(state.style.opacity);
       normalizeOpacity();
@@ -218,6 +216,17 @@ export function createPreferencesController(editor) {
       }
       for (const [id, key] of Object.entries(CSV_FIELDS)) values[id] = settings[key];
       schedule();
+    },
+    saveTheorySettings(settings) {
+      if (suspended) return;
+      let changed = false;
+      for (const [id, key] of Object.entries(THEORY_FIELDS))
+        if (!valid(fields.get(id), settings[key], id)) return;
+      for (const [id, key] of Object.entries(THEORY_FIELDS)) {
+        changed ||= values[id] !== settings[key];
+        values[id] = settings[key];
+      }
+      if (changed) schedule();
     },
     saveFraming() {
       if (suspended) return;

@@ -282,3 +282,69 @@ test("large curves stay within display budgets while retaining narrow extrema an
   assert.equal(Math.max(...difference.points.map((point) => point.thrust)), 1000);
   assert.equal(Math.max(...difference.points.map((point) => point.pressure)), 200);
 });
+
+function independentSignals(thrustRows, pressureRows) {
+  const data = csv(thrustRows.map(([time, thrust]) => [time, thrust, 0]));
+  data.points = data.points.map(({ pressure, ...point }) => point);
+  data.pressurePoints = pressureRows.map(([t, pressure, gapBefore = false], index) => ({ t, pressure, gapBefore, line: index + 2 }));
+  return data;
+}
+
+test("independent pressure clocks retain native peaks, coverage, and exact selected integrals", () => {
+  const data = independentSignals([[0, 0], [1, 100], [2, 0]], [[0.25, 0], [0.75, 30], [1, 0], [1.5, 20], [1.75, 0]]);
+  const result = analyseProfile(data, { start: 0, end: 2 });
+  near(result.impulse, 100);
+  near(result.coverage, 1);
+  near(result.pressureCoverage, 0.75);
+  near(result.meanPressure, 12.5);
+  near(result.peakPressure, 30);
+  const peak = result.curves.raw.find((point) => point.t === 0.75);
+  near(peak.pressure, 30);
+  near(peak.thrust, 75);
+  assert.equal(result.curves.raw[0].pressure, null);
+  assert.equal(result.curves.raw.at(-1).pressure, null);
+  data.pressurePoints[3].gapBefore = true;
+  const gapped = analyseProfile(data, { start: 0, end: 2, massKg: 0.1 });
+  near(gapped.pressureCoverage, 0.5);
+  near(gapped.meanPressure, 13.75);
+  near(gapped.coverage, 1);
+  assert.ok(Number.isFinite(gapped.specificImpulse));
+  assert.ok(gapped.curves.raw.some((point) => point.pressureGapBefore && !point.thrustGapBefore && point.t === 1.5));
+});
+
+test("missing pressure stays unavailable without suppressing thrust or inventing zero errors", () => {
+  const data = independentSignals([[0, 0], [1, 100], [2, 0]], []);
+  const result = analyseProfile(data, { start: 0, end: 2 });
+  near(result.impulse, 100);
+  assert.equal(result.meanPressure, null);
+  assert.equal(result.peakPressure, null);
+  assert.equal(result.noisePressureRms, null);
+  near(result.pressureCoverage, 0);
+  assert.ok(result.curves.raw.every((point) => point.pressure === null));
+  const difference = compareProfiles(data, { offset: 0, scale: 1 }, data, { offset: 0, scale: 1 });
+  near(difference.thrust.rmse, 0);
+  near(difference.coverage, 1);
+  near(difference.pressureCoverage, 0);
+  assert.deepEqual(difference.pressure, { bias: null, mae: null, rmse: null, maxAbs: null });
+});
+
+test("noise and comparison use native pressure knots independently of the thrust cadence", () => {
+  const thrust = [[0, 100], [2, 100], [4, 100], [6, 100]];
+  const triangle = (time) => 18 + 4 * (Math.floor(time) % 2 ? 1 - time % 1 : time % 1);
+  const sparse = Array.from({ length: 7 }, (_, i) => [i, triangle(i)]);
+  const uneven = [];
+  for (let i = 0; i < 6; i++) for (const fraction of [0, 0.01, 0.31, 0.5, 0.9]) uneven.push([i + fraction, triangle(i + fraction)]);
+  uneven.push([6, triangle(6)]);
+  for (const pressure of [sparse, uneven]) {
+    const result = analyseProfile(independentSignals(thrust, pressure), { start: 0, end: 6, noiseWindow: 2, noiseStart: 1, noiseEnd: 5 });
+    near(result.noiseThrustRms, 0);
+    near(result.noisePressureRms, 2 / Math.sqrt(3));
+  }
+  const reference = independentSignals([[0, 100], [1, 100], [2, 100]], [[0.25, 0], [0.75, 30], [1.75, 0]]);
+  const candidate = independentSignals([[0, 100], [0.5, 100], [2, 100]], [[0.25, 2], [0.75, 32], [1.75, 2]]);
+  const difference = compareProfiles(reference, { offset: 0, scale: 1 }, candidate, { offset: 0, scale: 1 });
+  near(difference.thrust.rmse, 0);
+  near(difference.pressure.rmse, 2);
+  near(difference.pressure.bias, 2);
+  near(difference.pressureCoverage, 0.75);
+});

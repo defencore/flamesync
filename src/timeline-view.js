@@ -99,15 +99,18 @@ export function createTimelineView(editor) {
     ctx.strokeStyle = "#b9783a";
     ctx.lineWidth = 1.7;
     ctx.beginPath();
+    let connected = false;
     for (let i = 0; i < state.reduced.length; i++) {
       const point = state.reduced[i];
+      if (!Number.isFinite(point.thrust)) { connected = false; continue; }
       const x =
         ((videoTimeAt(point.t, state.offset, state.timeScale) - from) /
           (to - from)) *
         visibleWidth;
       const y = 28 - (Math.max(0, point.thrust) / (data.peakThrust || 1)) * 24;
-      if (i === 0 || point.gapBefore) ctx.moveTo(x, y);
+      if (!connected || point.thrustGapBefore) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
+      connected = true;
     }
     ctx.stroke();
   }

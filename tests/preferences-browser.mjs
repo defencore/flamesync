@@ -308,7 +308,7 @@ export async function verifyPreferences({ browser, baseURL, outputDir }) {
     } finally { release(); await page.unroute("**/*csv-worker*.js", workerRoute); }
   });
 
-  await caseOf("a failed source-unit reinterpretation cannot silently change the next log's import defaults", async (page) => {
+  await caseOf("unit edits after a rejected replacement target the visible valid source and become future defaults only after success", async (page) => {
     await change(page, "language-select", "en"); await change(page, "source-thrust-unit", "kgf");
     await waitStored(page, "source-thrust-unit", "kgf");
     const validLog = { name: "VALID-BEFORE-FAILED-UNITS.csv", mimeType: "text/csv", buffer: Buffer.from("time_ms;thrust;pressure\n0;0;0\n1000;10;1\n2000;0;0") };
@@ -317,17 +317,43 @@ export async function verifyPreferences({ browser, baseURL, outputDir }) {
     assert.equal(Number.parseFloat(await page.locator("#summary-thrust").textContent()), 10);
     await page.locator("#csv-input").setInputFiles({ name: "INVALID-REPLACEMENT.csv", mimeType: "text/csv", buffer: Buffer.from("time_ms;thrust;pressure\n0;0;0\n0;10;1") });
     await page.waitForFunction(() => document.querySelector("#notice").className === "error" && document.querySelector("#csv-drop").getAttribute("aria-busy") !== "true");
-    await change(page, "source-thrust-unit", "N");
-    await page.waitForFunction(() => document.querySelector("#csv-drop").getAttribute("aria-busy") !== "true" && document.querySelector("#source-thrust-unit").value === "kgf");
-    assert.equal(await page.locator("#csv-filename").textContent(), validLog.name, "The valid active log must survive an invalid replacement and retry");
+    assert.equal(await page.locator("#csv-filename").textContent(), validLog.name, "A rejected replacement must keep the visible active file");
+    assert.equal(await page.locator("#source-thrust-unit").inputValue(), "kgf");
     assert.equal(Number.parseFloat(await page.locator("#summary-thrust").textContent()), 10);
-    await change(page, "meta-motor", "AFTER FAILED CALIBRATION"); await waitStored(page, "meta-motor", "AFTER FAILED CALIBRATION");
-    assert.equal((await stored(page)).values["source-thrust-unit"], "kgf", "Only validated unit changes may become saved future defaults");
+    assert.equal((await stored(page)).values["source-thrust-unit"], "kgf", "A failed replacement cannot change saved import units");
+    await change(page, "source-thrust-unit", "N");
+    await page.waitForFunction(() => document.querySelector("#csv-drop").getAttribute("aria-busy") !== "true" && document.querySelector("#source-thrust-unit").value === "N" &&
+      Math.abs(Number.parseFloat(document.querySelector("#summary-thrust").textContent) - 10 / 9.80665) < .001);
+    assert.equal(await page.locator("#csv-filename").textContent(), validLog.name, "Unit selectors must reparse the visible valid file rather than retry a hidden rejected replacement");
+    await waitStored(page, "source-thrust-unit", "N");
+    const saved = await stored(page);
+    assert.equal(saved.values["source-thrust-unit"], "N", "Validated active-source units become future defaults");
+    assert.ok(!JSON.stringify(saved).includes(validLog.name) && !JSON.stringify(saved).includes("INVALID-REPLACEMENT.csv"), "Neither active nor rejected file identities may enter preferences");
+    await page.reload(); await frame(page);
+    assert.equal(await page.locator("#source-thrust-unit").inputValue(), "N");
+    assert.equal(await page.locator("#csv-drop").evaluate((node) => node.classList.contains("loaded")), false, "Reload must retain preferences without retaining the source file");
     const nextLog = { ...validLog, name: "VALID-AFTER-FAILED-UNITS.csv" };
     await page.locator("#csv-input").setInputFiles(nextLog);
     await page.waitForFunction((name) => document.querySelector("#csv-filename").textContent === name && document.querySelector("#csv-drop").getAttribute("aria-busy") !== "true", nextLog.name);
-    assert.equal(await page.locator("#source-thrust-unit").inputValue(), "kgf");
-    assert.equal(Number.parseFloat(await page.locator("#summary-thrust").textContent()), 10, "A new ten-kilogram-force log must never inherit the rejected Newton setting");
+    assert.equal(await page.locator("#source-thrust-unit").inputValue(), "N");
+    assert.ok(Math.abs(Number.parseFloat(await page.locator("#summary-thrust").textContent()) - 10 / 9.80665) < .001, "The next raw ten-unit log must use the successfully saved Newton source unit");
+  });
+
+  await caseOf("a rejected conversion of the active source cannot overwrite validated unit preferences", async (page) => {
+    await change(page, "language-select", "en"); await change(page, "source-thrust-unit", "kgf");
+    await waitStored(page, "source-thrust-unit", "kgf");
+    const largeLog = { name: "VALID-CONVERSION-BOUNDARY.csv", mimeType: "text/csv", buffer: Buffer.from("time_ms;thrust;pressure\n0;0;0\n1;1e306;1\n2;0;0") };
+    await page.locator("#csv-input").setInputFiles(largeLog);
+    await page.waitForFunction((name) => document.querySelector("#csv-filename").textContent === name && document.querySelector("#csv-drop").getAttribute("aria-busy") !== "true", largeLog.name);
+    const peak = await page.locator("#summary-thrust").textContent();
+    await change(page, "source-thrust-unit", "kN");
+    await page.waitForFunction(() => document.querySelector("#notice").className === "error" && document.querySelector("#csv-drop").getAttribute("aria-busy") !== "true" && document.querySelector("#source-thrust-unit").value === "kgf");
+    assert.equal(await page.locator("#csv-filename").textContent(), largeLog.name);
+    assert.equal(await page.locator("#summary-thrust").textContent(), peak, "Rejected overflow must preserve the actual valid source values");
+    await change(page, "meta-motor", "AFTER REJECTED CONVERSION"); await waitStored(page, "meta-motor", "AFTER REJECTED CONVERSION");
+    const saved = await stored(page);
+    assert.equal(saved.values["source-thrust-unit"], "kgf", "A failed active-source conversion cannot become the next file's default");
+    assert.ok(!JSON.stringify(saved).includes(largeLog.name) && !JSON.stringify(saved).includes("1e306"), "Source identities and samples remain private");
     await page.reload(); await frame(page);
     assert.equal(await page.locator("#source-thrust-unit").inputValue(), "kgf");
   });

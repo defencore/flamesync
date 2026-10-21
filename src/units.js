@@ -18,7 +18,8 @@ export const PRESSURE_FACTORS = Object.freeze({
   atm: 1.01325,
 });
 export const TIME_FACTORS = Object.freeze({ s: 1, ms: 0.001, us: 0.000001 });
-/** @typedef {{timeUnit?:string,thrustUnit?:string,pressureUnit?:string}} CSVSettings */
+/** @typedef {{thrustTime:number,thrust:number,pressureTime:number|null,pressure:number|null,markerMode?:string,active?:number|null,start?:number|null,end?:number|null}} CSVColumns */
+/** @typedef {{timeUnit?:string,pressureTimeUnit?:string,thrustUnit?:string,pressureUnit?:string,hasHeader?:boolean,allowSparse?:boolean,columns?:CSVColumns}} CSVSettings */
 // Kilogram-force is the force unit used by the application's test-stand CSVs.
 export const DEFAULT_CSV_SETTINGS = Object.freeze({
   timeUnit: "auto",
@@ -41,10 +42,10 @@ export const thrustFactor = (unit) => factor(THRUST_FACTORS, unit);
 export const pressureFactor = (unit) => factor(PRESSURE_FACTORS, unit);
 /** @param {string} unit */
 export const timeFactor = (unit) => factor(TIME_FACTORS, unit);
-/** @param {number} value @param {string} unit */
-export const displayThrust = (value, unit) => value / thrustFactor(unit);
-/** @param {number} value @param {string} unit */
-export const displayPressure = (value, unit) => value / pressureFactor(unit);
+/** @param {number|null|undefined} value @param {string} unit */
+export const displayThrust = (value, unit) => value == null ? null : value / thrustFactor(unit);
+/** @param {number|null|undefined} value @param {string} unit */
+export const displayPressure = (value, unit) => value == null ? null : value / pressureFactor(unit);
 /** @param {number} seconds @param {string} unit */
 export function sourceTimestamp(seconds, unit) {
   const value = seconds / timeFactor(unit);

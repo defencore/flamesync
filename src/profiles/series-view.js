@@ -2,7 +2,7 @@ import { $ } from "../dom.js";
 import { t, renderMessage } from "../i18n.js";
 import { displayThrust, displayPressure } from "../units.js";
 import { downloadBlob } from "../files.js";
-import { number } from "./results.js";
+import { number, SOURCE_REPORT_COLUMNS, sourceReport } from "./results.js";
 
 export const SERIES_METRICS = [
   { key: "duration", label: "Burn duration", unit: "s" },
@@ -89,6 +89,7 @@ export function createSeriesView({ onDisplayChange }) {
   function exportReport() {
     if (!result?.eligibleCount || settings.busy) return;
     const columns = ["series", "row_type", "metric", "metric_unit", "profile", "n", "value", "mean", "sd", "cv_percent", "min", "max", "median", "delta", "delta_percent", "z_score", "outlier", "included", "eligible", "exclusion_reason", "alignment", "source_time_unit", "source_thrust_unit", "source_pressure_unit", "threshold_percent", "noise_window_s", "ignition_s", "burnout_s", "propellant_g", "noise_start_s", "noise_end_s"];
+    columns.push("thrust_coverage_percent", ...SOURCE_REPORT_COLUMNS);
     const series = $("series-name").value.trim(), rows = [];
     const common = { series, alignment: settings.alignment, threshold_percent: settings.threshold, noise_window_s: settings.noiseWindow };
     for (const metric of SERIES_METRICS) {
@@ -98,6 +99,7 @@ export function createSeriesView({ onDisplayChange }) {
     for (const record of records) {
       const eligible = result.eligibleIds.includes(record.id), exclusion = result.excluded.find((item) => item.id === record.id);
       const base = { ...common, row_type: "test", profile: record.name, included: record.included, eligible,
+        ...sourceReport(record), thrust_coverage_percent: Number.isFinite(record.stats?.coverage) ? record.stats.coverage * 100 : null,
         source_time_unit: record.sourceUnits.time, source_thrust_unit: record.sourceUnits.thrust, source_pressure_unit: record.sourceUnits.pressure,
         ignition_s: record.stats?.start, burnout_s: record.stats?.end, propellant_g: record.options.massKg == null ? null : record.options.massKg * 1000,
         noise_start_s: record.stats?.noiseStart, noise_end_s: record.stats?.noiseEnd,
@@ -111,6 +113,7 @@ export function createSeriesView({ onDisplayChange }) {
       }
     }
     const textColumns = new Set(["series", "row_type", "metric", "metric_unit", "profile", "exclusion_reason", "alignment", "source_time_unit", "source_thrust_unit", "source_pressure_unit"]);
+    textColumns.add("source_pressure_time_unit"); textColumns.add("source_marker_mode");
     const text = [columns.join(","), ...rows.map((row) => columns.map((key) => textColumns.has(key) ? csvText(row[key] ?? "") : typeof row[key] === "boolean" ? String(row[key]) : csvNumber(row[key])).join(","))].join("\r\n");
     downloadBlob(new Blob(["\uFEFF", text], { type: "text/csv;charset=utf-8" }), "flamesync-series-analysis.csv");
   }

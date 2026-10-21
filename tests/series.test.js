@@ -233,3 +233,47 @@ test("empty and unavailable metric populations are explicit and serializable", (
   }
   assert.deepEqual(JSON.parse(JSON.stringify(result)), result);
 });
+
+function withNativePressure(entry, rows) {
+  entry.data.points = entry.data.points.map(({ pressure, ...point }) => point);
+  entry.data.pressurePoints = rows.map(([t, pressure, gapBefore = false]) => ({ t, pressure, gapBefore }));
+  entry.stats = analyseProfile(entry.data, { start: entry.data.start, end: entry.data.end });
+  return entry;
+}
+
+test("a missing pressure channel leaves the thrust population and curve intact", () => {
+  const a = withNativePressure(profile("a", 80), []);
+  const b = withNativePressure(profile("b", 120), [[0, 3], [1, 3], [2, 3]]);
+  const result = analyseSeries([a, b]);
+  assert.equal(result.eligibleCount, 2);
+  assert.equal(result.metrics.meanThrust.n, 2);
+  assert.equal(result.metrics.meanPressure.n, 1);
+  near(result.metrics.meanPressure.mean, 3);
+  for (const point of result.curve.points) {
+    near(point.thrust, 100);
+    near(point.thrustSd, Math.sqrt(800));
+    assert.equal(point.thrustN, 2);
+    near(point.pressure, 3);
+    assert.equal(point.pressureN, 1);
+    assert.equal(point.pressureSd, null);
+  }
+});
+
+test("series curves preserve pressure-only extrema and separate channel coverage", () => {
+  const a = withNativePressure(profile("a", 100, { rate: 1 }), [[0.25, 0], [0.75, 100], [1, 0], [1.75, 0]]);
+  const b = withNativePressure(profile("b", 100, { rate: 1 }), [[0.25, 0], [0.75, 20], [1, 0], [1.75, 0]]);
+  const result = analyseSeries([a, b], { budget: 120 });
+  assert.equal(result.eligibleCount, 2);
+  assert.ok(result.curve.points.length <= 120);
+  const peak = result.curve.points.find((point) => point.t === 0.75);
+  near(peak.pressure, 60);
+  near(peak.pressureSd, Math.sqrt(3200));
+  near(peak.pressureMax, 100);
+  near(result.curve.points[0].thrust, 100);
+  assert.equal(result.curve.points[0].pressure, null);
+  assert.equal(result.curve.points.at(-1).pressure, null);
+  a.data.pressurePoints[2].gapBefore = true;
+  const gapped = analyseSeries([a, b], { budget: 120 });
+  assert.ok(gapped.curve.points.some((point) => point.pressureGapBefore && !point.thrustGapBefore && point.t >= 1));
+  assert.ok(gapped.curve.points.every((point) => point.thrust === 100));
+});

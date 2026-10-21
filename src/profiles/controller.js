@@ -12,6 +12,8 @@ import { PROFILE_LIMIT, PROFILE_MAX_BYTES, WORKSPACE_MAX_BYTES } from "./limits.
 import { DEFAULT_CSV_SETTINGS } from "../units.js";
 import { profileMapping } from "./model.js";
 import { renderTheoryComparison } from "./theory-view.js";
+import { configureCSV } from "../csv-mapping.js";
+import { inspectCSV } from "../csv-format.js";
 
 const COLORS = ["#2b61a5", "#bd6530", "#268477", "#885eae", "#b34c73", "#747c21", "#216e91", "#a45245", "#67718f", "#658638", "#a47b21", "#8e5586"];
 const own = (object, key) => Object.hasOwn(object, key);
@@ -23,6 +25,12 @@ const textNode = (tag, text, className) => {
   if (className) node.className = className;
   return node;
 };
+const eventIdentity = (settings) => JSON.stringify([
+  settings.timeUnit, settings.hasHeader, settings.allowSparse,
+  ...["thrustTime", "thrust", "markerMode", "active", "start", "end"].map((key) => settings.columns?.[key]),
+]);
+const importUnits = () => ({ timeUnit: $("profiles-source-time").value,
+  thrustUnit: $("profiles-source-thrust").value, pressureUnit: $("profiles-source-pressure").value });
 
 export function createProfileWorkspace() {
   const worker = createProfileWorker(), records = [];
@@ -33,7 +41,9 @@ export function createProfileWorkspace() {
     hoverPending = false, hoverRevision = 0, noticeValue = null, noticeKind = "success", disposed = false,
     pendingCount = 0, pendingBytes = 0, seriesResult = null,
     theoryState = null, workerTheoryData = null, workerTheoryStats = null, theoryCurves = null, importSequence = 0,
-    lastBusy = false;
+    lastBusy = false, forceNextImport = false, sourceEpoch = 0;
+  const mappingTemplates = new Map();
+  const schemaCache = new WeakMap();
   const panel = $("profile-analysis");
   const comparisonHelp = $("profiles-difference-help").getAttribute("data-i18n-data-help");
   const metric = () => $("profiles-metric").value;
@@ -74,6 +84,11 @@ export function createProfileWorkspace() {
     $("profiles-processing").hidden = busy === 0;
     $("profiles-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
     $("profiles-demo").disabled = busy > 0;
+    $("profiles-columns").disabled = busy > 0;
+    $("profiles-clear").disabled = busy > 0 || !records.length;
+    for (const record of records) {
+      for (const control of record.card.querySelectorAll("input, select, button")) control.disabled = busy > 0;
+    }
     $("profiles-theory-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
     seriesView.update(seriesResult, records, { active: isSeries(), units: units(), alignment: alignment(), threshold, noiseWindow, busy: busy > 0 });
   }
@@ -94,6 +109,7 @@ export function createProfileWorkspace() {
     record.card.classList.toggle("is-reference", record.id === reference);
     record.card.classList.toggle("is-selected", record.id === selected);
     record.card.classList.toggle("is-hidden", !record.visible);
+    for (const control of record.card.querySelectorAll("input, select, button")) control.disabled = busy > 0;
     record.card.querySelector('[data-action="reference"]').setAttribute("aria-pressed", String(record.id === reference));
     record.card.querySelector('[data-action="reference"]').textContent = t(record.id === reference ? "Reference" : "Set reference");
     record.card.querySelector(".profile-source-meta").textContent = t("{count} samples · {rate} Hz · {start}–{end} s", {
@@ -125,7 +141,8 @@ export function createProfileWorkspace() {
     select.replaceChildren(...records.map((record) => new Option(record.name, record.id)));
     select.value = reference; select.disabled = !records.length;
     $("profiles-count").textContent = `${records.length} / ${PROFILE_LIMIT}`;
-    $("profiles-clear").disabled = !records.length;
+    $("profiles-clear").disabled = busy > 0 || !records.length;
+    $("profiles-columns").disabled = busy > 0;
     $("profiles-results-empty").hidden = !!records.length;
     $("profiles-export").disabled = busy > 0 || !records.length || records.some((record) => record.error);
     for (const record of records) updateCard(record);
@@ -169,12 +186,12 @@ export function createProfileWorkspace() {
     const common = isSeries() ? seriesResult?.curve : null;
     let start = common?.start ?? Infinity, end = common?.end ?? -Infinity;
     for (const record of common ? [] : visible()) {
-      start = Math.min(start, record.mapping.offset + record.start * record.mapping.scale);
-      end = Math.max(end, record.mapping.offset + record.end * record.mapping.scale);
+      start = Math.min(start, record.mapping.offset + (record.overallStart ?? record.start) * record.mapping.scale);
+      end = Math.max(end, record.mapping.offset + (record.overallEnd ?? record.end) * record.mapping.scale);
     }
     if (theoryActive()) {
       const mapping = profileMapping(theoryState.stats, alignment());
-      if (mapping) { start = Math.min(start, mapping.offset + theoryState.data.start * mapping.scale); end = Math.max(end, mapping.offset + theoryState.data.end * mapping.scale); }
+      if (mapping) { start = Math.min(start, mapping.offset + (theoryState.data.overallStart ?? theoryState.data.start) * mapping.scale); end = Math.max(end, mapping.offset + (theoryState.data.overallEnd ?? theoryState.data.end) * mapping.scale); }
     }
     return end > start ? { start, end } : { start: 0, end: 1 };
   }
@@ -260,12 +277,17 @@ export function createProfileWorkspace() {
     card.querySelector(".profile-swatch").style.background = record.color;
     card.querySelector(".profile-name").textContent = record.name;
     card.querySelector(".profile-name").title = record.name;
-    for (const [key, value] of Object.entries(record.settings)) field(record, key).value = value;
+    for (const key of ["timeUnit", "thrustUnit", "pressureUnit"]) field(record, key).value = record.settings[key];
+    const columns = textNode("button", t("Columns…"), "text-button");
+    columns.type = "button"; columns.dataset.action = "columns"; columns.dataset.i18n = "Columns…";
+    card.querySelector(".profile-card-tools").append(columns);
     card.addEventListener("focusin", () => { if (selected !== record.id) { selected = record.id; draw(); } });
     card.addEventListener("click", (event) => {
       const action = event.target.closest("[data-action]")?.dataset.action;
       if (!action) return;
+      if (busy) return;
       selected = record.id;
+      if (action === "columns") { operation(() => remapRecord(record)); return; }
       if (action === "reference") { reference = record.id; operation(analyze); }
       if (action === "remove") {
         records.splice(records.indexOf(record), 1); card.remove(); cancelPick(); view = null; revision++;
@@ -289,19 +311,7 @@ export function createProfileWorkspace() {
       if (key === "included") { record.included = event.target.checked; operation(analyze); return; }
       if (["timeUnit", "thrustUnit", "pressureUnit"].includes(key)) {
         const previous = record.settings, settings = { ...previous, [key]: event.target.value };
-        record.settings = settings;
-        operation(async () => {
-          const result = await worker.request({ type: "import", entries: [{ id: record.id, settings }] });
-          if (result.errors.length) { if (record.settings === settings) { record.settings = previous; event.target.value = previous[key]; } notice(fileError(record.name, result.errors[0].error), "error"); return; }
-          if (!records.includes(record)) return;
-          Object.assign(record, result.records[0]);
-          if (key === "timeUnit") {
-            delete record.options.start; delete record.options.end; delete record.options.noiseStart; delete record.options.noiseEnd;
-            field(record, "noiseStart").value = ""; field(record, "noiseEnd").value = "";
-            for (const name of ["start", "end", "noiseStart", "noiseEnd"]) record.invalid.delete(name);
-          }
-          view = null; await analyze();
-        }); return;
+        operation(() => replaceRecord(record, settings)); return;
       }
       if (["start", "end", "mass", "noiseStart", "noiseEnd"].includes(key)) setField(record, key, event.target);
     });
@@ -331,26 +341,92 @@ export function createProfileWorkspace() {
     cancelPick(); setField(record, event, field(record, event));
   }
   function cancelPick() { pick = null; $("profiles-pick-status").hidden = true; draw(); }
-  async function importFiles(files, settingsOverride = null) {
+  async function schemaFor(file, hasHeader) {
+    let cached = schemaCache.get(file);
+    if (!cached) { cached = new Map(); schemaCache.set(file, cached); }
+    if (!cached.has(hasHeader)) {
+      const inspected = inspectCSV(await file.slice(0, 128 * 1024).text(), { hasHeader });
+      cached.set(hasHeader, JSON.stringify([hasHeader, inspected.delimiter, inspected.headers]));
+    }
+    return cached.get(hasHeader);
+  }
+  async function rememberMapping(file, settings, templates = mappingTemplates) {
+    if (settings.columns) templates.set(await schemaFor(file, settings.hasHeader !== false), { ...settings, columns: { ...settings.columns } });
+  }
+  async function configureProfile(file, defaults, templates, force = false) {
+    if (!force && !defaults.columns) {
+      for (const [schema, settings] of templates) {
+        if (await schemaFor(file, settings.hasHeader !== false) === schema)
+          return { ...settings, columns: { ...settings.columns } };
+      }
+    }
+    return configureCSV(file, defaults, { force });
+  }
+  async function replaceRecord(record, settings) {
+    if (!records.includes(record) || disposed) return;
+    const version = (record.importVersion ?? 0) + 1;
+    record.importVersion = version;
+    const previous = record.settings;
+    const result = await worker.request({ type: "import", entries: [{ id: record.id, settings }] });
+    if (!records.includes(record) || disposed || record.importVersion !== version) return;
+    if (result.errors.length) {
+      for (const key of ["timeUnit", "thrustUnit", "pressureUnit"]) field(record, key).value = previous[key];
+      notice(fileError(record.name, result.errors[0].error), "error"); return;
+    }
+    Object.assign(record, result.records[0]);
+    record.settings = { ...settings, columns: settings.columns ? { ...settings.columns } : undefined };
+    for (const key of ["timeUnit", "thrustUnit", "pressureUnit"]) field(record, key).value = settings[key];
+    if (eventIdentity(previous) !== eventIdentity(settings)) {
+      for (const key of ["start", "end", "noiseStart", "noiseEnd"]) {
+        delete record.options[key]; record.invalid.delete(key);
+        field(record, key).value = ""; field(record, key).removeAttribute("aria-invalid");
+      }
+    }
+    await rememberMapping(record.file, settings);
+    view = null; cancelPick(); await analyze();
+  }
+  async function remapRecord(record) {
+    const epoch = sourceEpoch;
+    const settings = await configureCSV(record.file, record.settings, { force: true });
+    if (!settings || disposed || epoch !== sourceEpoch || !records.includes(record)) return;
+    await replaceRecord(record, settings);
+  }
+  async function importFiles(files, settingsOverride = null, { force = false } = {}) {
     const importVersion = ++importSequence;
+    const epoch = sourceEpoch;
     const accepted = [], failures = [];
     let total = pendingBytes + records.reduce((sum, record) => sum + record.size, 0);
     for (const file of files) {
       if (records.length + pendingCount + accepted.length >= PROFILE_LIMIT || file.size > PROFILE_MAX_BYTES || total + file.size > WORKSPACE_MAX_BYTES) {
         failures.push(message("Add up to 50 CSV logs, each smaller than 20 MB (100 MB total).")); continue;
       }
-      const settings = settingsOverride ? { ...settingsOverride } : { timeUnit: $("profiles-source-time").value, thrustUnit: $("profiles-source-thrust").value, pressureUnit: $("profiles-source-pressure").value };
+      const settings = settingsOverride ? { ...settingsOverride } : importUnits();
       accepted.push({ id: `p${++sequence}`, file, settings }); total += file.size;
     }
     pendingCount += accepted.length;
     const bytes = accepted.reduce((sum, entry) => sum + entry.file.size, 0);
     pendingBytes += bytes;
     await operation(async () => {
-      const result = await worker.request({ type: "import", entries: accepted });
+      const configured = [], templates = settingsOverride ? new Map() : new Map(mappingTemplates);
+      for (const entry of accepted) {
+        if (disposed || epoch !== sourceEpoch) return;
+        try {
+          const settings = await configureProfile(entry.file, entry.settings, templates, force && configured.length === 0);
+          if (disposed || epoch !== sourceEpoch) return;
+          if (!settings) break;
+          entry.settings = settings; configured.push(entry);
+          await rememberMapping(entry.file, settings, templates);
+        } catch (error) { failures.push(fileError(entry.file.name, error.userMessage ?? errorMessage(error))); }
+      }
+      if (!configured.length) { if (failures.length) notice(failures, "error"); return; }
+      const result = await worker.request({ type: "import", entries: configured });
+      if (disposed || epoch !== sourceEpoch) return;
       for (const item of result.records) {
-        const record = { ...item, settings: accepted.find((entry) => entry.id === item.id).settings,
+        const source = configured.find((entry) => entry.id === item.id);
+        const record = { ...item, file: source.file, settings: source.settings,
           color: records.length < COLORS.length ? COLORS[records.length] : `hsl(${(sequence * 137.508 + records.length * 51) % 360} 48% 40%)`, visible: true, included: true, options: {} };
         records.push(record); createCard(record);
+        if (!settingsOverride) await rememberMapping(source.file, source.settings);
       }
       for (const error of result.errors) failures.push(fileError(error.name, error.error));
       view = null; update(); await analyze();
@@ -370,14 +446,24 @@ export function createProfileWorkspace() {
       if (version !== hoverRevision) return;
       $("profiles-hover").replaceChildren(...samples.filter((sample) => sample.point).map((sample) => {
         const record = records.find((record) => record.id === sample.id);
-        return textNode("span", `${record.name}: ${number(displayThrust(sample.point.thrust, units().thrust))} ${units().thrust} · ${number(displayPressure(sample.point.pressure, units().pressure))} ${units().pressure} · ${t("Source time")} ${preciseSeconds(sample.time)} s`);
+        const thrust = Number.isFinite(sample.point.thrust) ? displayThrust(sample.point.thrust, units().thrust) : null;
+        const pressure = Number.isFinite(sample.point.pressure) ? displayPressure(sample.point.pressure, units().pressure) : null;
+        return textNode("span", `${record.name}: ${number(thrust)} ${units().thrust} · ${number(pressure)} ${units().pressure} · ${t("Source time")} ${preciseSeconds(sample.time)} s`);
       }));
       if (!$("profiles-hover").childElementCount) $("profiles-hover").textContent = t("No samples at this time.");
     } catch { /* A cleared workspace cancels pending readouts. */ }
     finally { hoverPending = false; if (version !== hoverRevision && crosshair !== null && !disposed) sampleHover(); }
   }
   $("profiles-add").onclick = () => $("profiles-input").click();
-  $("profiles-input").onchange = (event) => { importFiles([...event.target.files]); event.target.value = ""; };
+  $("profiles-columns").onclick = () => {
+    if (busy) return;
+    const record = records.find((item) => item.id === selected) ?? currentReference();
+    if (record) operation(() => remapRecord(record));
+    else { forceNextImport = true; $("profiles-input").click(); }
+  };
+  $("profiles-input").onchange = (event) => {
+    importFiles([...event.target.files], null, { force: forceNextImport }); forceNextImport = false; event.target.value = "";
+  };
   $("profiles-demo").onclick = () => importFiles(isSeries() ? seriesExamples() : profileExamples(), DEFAULT_CSV_SETTINGS);
   $("profiles-mode").onchange = () => { view = null; cancelPick(); update(); operation(analyze); };
   $("series-folder").onclick = () => $("series-folder-input").click();
@@ -388,7 +474,7 @@ export function createProfileWorkspace() {
     event.target.value = "";
   };
   $("profiles-clear").onclick = () => {
-    revision++; importSequence++; worker.dispose(); records.splice(0); reference = ""; selected = ""; view = null; seriesResult = null;
+    revision++; importSequence++; sourceEpoch++; worker.dispose(); records.splice(0); reference = ""; selected = ""; view = null; seriesResult = null;
     workerTheoryData = null; workerTheoryStats = null;
     $("profiles-list").replaceChildren(); cancelPick(); notice(null); update();
   };
@@ -401,6 +487,8 @@ export function createProfileWorkspace() {
   $("profiles-reference").onchange = (event) => { reference = event.target.value; operation(analyze); };
   $("profiles-alignment").onchange = () => { view = null; cancelPick(); operation(analyze); };
   for (const id of ["profiles-metric", "profiles-trace", "profiles-thrust-unit", "profiles-pressure-unit"]) $(id).onchange = () => update();
+  for (const id of ["profiles-source-time", "profiles-source-thrust", "profiles-source-pressure"])
+    $(id).addEventListener("change", () => mappingTemplates.clear());
   function readAnalysisPreferences() {
     const nextThreshold = $("profiles-threshold").valueAsNumber, nextWindow = $("profiles-noise-window").valueAsNumber;
     if (!(nextThreshold >= .1 && nextThreshold <= 99.9 && nextWindow >= 1 && nextWindow <= 10000)) {
@@ -426,6 +514,7 @@ export function createProfileWorkspace() {
     isBusy: () => Boolean(busy || pendingCount),
     applyPreferences() {
       if (disposed || !readAnalysisPreferences()) return Promise.resolve();
+      mappingTemplates.clear();
       view = crosshair = null;
       hoverRevision++;
       $("profiles-hover").replaceChildren();
@@ -434,6 +523,6 @@ export function createProfileWorkspace() {
       return operation(analyze);
     },
     setTheory(next) { const previous = theoryState; theoryState = next; if (previous?.data !== next.data || previous?.stats !== next.stats || previous?.enabled !== next.enabled || previous?.sourceValid !== next.sourceValid || previous?.loading !== next.loading) operation(analyze); else update(); },
-    dispose() { disposed = true; worker.dispose(); chart.dispose(); pressureChart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); },
+    dispose() { disposed = true; sourceEpoch++; worker.dispose(); chart.dispose(); pressureChart.dispose(); difference.dispose(); document.removeEventListener("keydown", onKey); document.removeEventListener("flamesync:language", onLanguage); },
   };
 }

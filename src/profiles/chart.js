@@ -167,12 +167,13 @@ export function createProfileChart(canvas, callbacks = {}) {
       }
       xs.push(x);
       ys.push(y);
-      gaps.push(gap || Boolean(point.gapBefore));
+      gaps.push(gap || Boolean(point[`${metric}GapBefore`] ?? point.gapBefore));
       minimum = Math.min(minimum, y);
       maximum = Math.max(maximum, y);
       let lower = NaN,
         upper = NaN;
-      if (band && Number.isFinite(point.n) && point.n >= 2) {
+      const sampleCount = point[`${metric}N`] ?? point.n;
+      if (band && Number.isFinite(sampleCount) && sampleCount >= 2) {
         const deviation = point[`${metric}Sd`];
         const low = band === "sd" ? value - deviation : point[`${metric}Min`];
         const high = band === "sd" ? value + deviation : point[`${metric}Max`];

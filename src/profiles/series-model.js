@@ -1,12 +1,13 @@
 import { message } from "../messages.js";
 import { profileMapping } from "./model.js";
+import { signalPoints } from "../data.js";
+import { mergeSignalCurves } from "../signal-curves.js";
 
 export const SERIES_METRICS = [
   "duration", "impulse", "meanThrust", "peakThrust", "meanPressure", "peakPressure",
   "noiseThrustRms", "noisePressureRms", "noiseThrustPercent", "specificImpulse",
 ];
 const MAX_CURVE_POINTS = 2400;
-const DISPLAY_KEYS = ["thrust", "pressure", "thrustSd", "pressureSd", "thrustMin", "thrustMax", "pressureMin", "pressureMax"];
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
 // R7 quantiles: linearly interpolate sorted observations at h = (n - 1) p.
@@ -115,48 +116,48 @@ function pop(heap) {
   return first;
 }
 
-function sample(cursor, x) {
-  const { entry, mapping } = cursor;
-  const points = entry.data.points;
+function sample(cursor, x, key) {
+  const { entry, mapping, points } = cursor;
+  cursor.crossedGap = false;
   let time = (x - mapping.offset) / mapping.scale;
   const tolerance = Number.EPSILON * 16 * Math.max(1, Math.abs(time), Math.abs(entry.stats.start), Math.abs(entry.stats.end));
   if (time < entry.stats.start && entry.stats.start - time <= tolerance) time = entry.stats.start;
   if (time > entry.stats.end && time - entry.stats.end <= tolerance) time = entry.stats.end;
   if (time < entry.stats.start || time > entry.stats.end) return null;
-  while (cursor.sampleIndex + 1 < points.length && points[cursor.sampleIndex + 1].t <= time) cursor.sampleIndex++;
+  if (time < points[0].t && points[0].t - time <= tolerance) time = points[0].t;
+  if (time > points.at(-1).t && time - points.at(-1).t <= tolerance) time = points.at(-1).t;
+  while (cursor.sampleIndex + 1 < points.length && points[cursor.sampleIndex + 1].t <= time) {
+    cursor.sampleIndex++;
+    cursor.crossedGap ||= !!points[cursor.sampleIndex].gapBefore;
+  }
   const a = points[cursor.sampleIndex], b = points[cursor.sampleIndex + 1];
-  if (time === a.t) return a;
+  if (time === a.t) return a[key];
   if (!b || b.gapBefore || time < a.t || time > b.t) return null;
-  const fraction = (time - a.t) / (b.t - a.t);
-  return { thrust: a.thrust + (b.thrust - a.thrust) * fraction, pressure: a.pressure + (b.pressure - a.pressure) * fraction };
+  return a[key] + (b[key] - a[key]) * ((time - a.t) / (b.t - a.t));
 }
 
-function commonCurve(entries, alignment, requestedBudget) {
-  if (!entries.length) return null;
-  const cursors = entries.map((entry) => ({ entry, mapping: profileMapping(entry.stats, alignment), sampleIndex: 0 }));
-  if (cursors.some(({ mapping }) => !mapping)) return null;
+function commonSignalCurve(entries, alignment, limit, key, start, end) {
+  const cursors = entries.map((entry) => ({ entry, points: signalPoints(entry.data, key), mapping: profileMapping(entry.stats, alignment), sampleIndex: 0 }))
+    .filter(({ points }) => points.length >= 2);
+  if (!cursors.length || cursors.some(({ mapping }) => !mapping)) return [];
   const mapped = (cursor, time) => cursor.mapping.offset + time * cursor.mapping.scale;
-  // The normalized endpoints are exact by definition, avoiding subtraction
-  // cancellation when log clocks have large absolute offsets.
-  const start = alignment === "normalized" ? 0 : Math.max(...cursors.map((cursor) => mapped(cursor, cursor.entry.stats.start)));
-  const end = alignment === "normalized" ? 100 : Math.min(...cursors.map((cursor) => mapped(cursor, cursor.entry.stats.end)));
-  if (!(end > start)) return null;
-  const limit = finite(requestedBudget) ? Math.min(MAX_CURVE_POINTS, Math.max(18, Math.floor(requestedBudget))) : 800;
-  const bucketCount = Math.max(1, Math.floor(limit / (2 + DISPLAY_KEYS.length * 2)));
-  const buckets = new Map();
-  const heap = [];
+  // Only tests with this channel contribute. Its own native range clips the
+  // common curve without shrinking or suppressing the other channel.
+  start = Math.max(start, ...cursors.map((cursor) => cursor.points[0].t > cursor.entry.stats.start ? mapped(cursor, cursor.points[0].t) : start));
+  end = Math.min(end, ...cursors.map((cursor) => cursor.points.at(-1).t < cursor.entry.stats.end ? mapped(cursor, cursor.points.at(-1).t) : end));
+  if (!(end > start)) return [];
+  const displayKeys = [key, `${key}Sd`, `${key}Min`, `${key}Max`];
+  const bucketCount = Math.max(1, Math.floor(limit / (2 + displayKeys.length * 2)));
+  const buckets = new Map(), heap = [];
   for (let i = 0; i < cursors.length; i++) {
-    const cursor = cursors[i];
-    const sourceStart = (start - cursor.mapping.offset) / cursor.mapping.scale;
-    cursor.sampleIndex = lowerIndex(cursor.entry.data.points, sourceStart);
-    const points = cursor.entry.data.points;
+    const cursor = cursors[i], sourceStart = (start - cursor.mapping.offset) / cursor.mapping.scale;
+    cursor.sampleIndex = lowerIndex(cursor.points, sourceStart);
     let index = cursor.sampleIndex;
-    while (index < points.length && mapped(cursor, points[index].t) < start) index++;
-    if (index < points.length && mapped(cursor, points[index].t) <= end)
-      push(heap, { t: mapped(cursor, points[index].t), cursor: i, index });
+    while (index < cursor.points.length && mapped(cursor, cursor.points[index].t) < start) index++;
+    if (index < cursor.points.length && mapped(cursor, cursor.points[index].t) <= end)
+      push(heap, { t: mapped(cursor, cursor.points[index].t), cursor: i, index });
   }
-  // A regular grid supports smooth SD bands between original knots; original
-  // knots are also visited so isolated raw extrema cannot vanish by aliasing.
+  // Native knots protect extrema; the extra grid only smooths display bands.
   const gridCount = Math.max(2, Math.min(limit, 800));
   let grid = 0, previousTime = null, breakPending = false;
   while (grid <= gridCount || heap.length) {
@@ -166,7 +167,7 @@ function commonCurve(entries, alignment, requestedBudget) {
     if (gridTime === time) grid++;
     while (heap.length && heap[0].t === time) {
       const item = pop(heap), cursor = cursors[item.cursor];
-      const index = item.index + 1, point = cursor.entry.data.points[index];
+      const index = item.index + 1, point = cursor.points[index];
       if (point) {
         const t = mapped(cursor, point.t);
         if (t <= end) push(heap, { t, cursor: item.cursor, index });
@@ -174,35 +175,26 @@ function commonCurve(entries, alignment, requestedBudget) {
     }
     if (time === previousTime) continue;
     previousTime = time;
-    const samples = cursors.map((cursor) => sample(cursor, time));
-    if (samples.some((point) => !point || !finite(point.thrust) || !finite(point.pressure))) {
-      breakPending = true;
-      continue;
-    }
-    const force = samples.map((point) => point.thrust), pressure = samples.map((point) => point.pressure);
-    const forceStats = meanAndSd(force), pressureStats = meanAndSd(pressure);
-    const point = {
-      t: time, thrust: forceStats.mean, pressure: pressureStats.mean,
-      thrustSd: forceStats.sd, pressureSd: pressureStats.sd,
-      thrustMin: Math.min(...force), thrustMax: Math.max(...force),
-      pressureMin: Math.min(...pressure), pressureMax: Math.max(...pressure),
-      n: cursors.length, gapBefore: breakPending,
-    };
+    const values = cursors.map((cursor) => sample(cursor, time, key));
+    if (values.some((value) => !finite(value))) { breakPending = true; continue; }
+    breakPending ||= cursors.some((cursor) => cursor.crossedGap);
+    const stats = meanAndSd(values);
+    const point = { t: time, [key]: stats.mean, [`${key}Sd`]: stats.sd,
+      [`${key}Min`]: Math.min(...values), [`${key}Max`]: Math.max(...values),
+      [`${key}N`]: cursors.length, gapBefore: breakPending };
     breakPending = false;
     const bucketIndex = Math.min(bucketCount - 1, Math.floor((time - start) / (end - start) * bucketCount));
     let bucket = buckets.get(bucketIndex);
     if (!bucket) {
-      bucket = { first: point, last: point, extrema: Object.fromEntries(DISPLAY_KEYS.map((key) => [key, { min: point, max: point }])) };
+      bucket = { first: point, last: point, extrema: Object.fromEntries(displayKeys.map((name) => [name, { min: point, max: point }])) };
       buckets.set(bucketIndex, bucket);
     }
     bucket.last = point;
-    for (const key of DISPLAY_KEYS) {
-      if (!finite(point[key])) continue;
-      if (point[key] < bucket.extrema[key].min[key]) bucket.extrema[key].min = point;
-      if (point[key] > bucket.extrema[key].max[key]) bucket.extrema[key].max = point;
+    for (const name of displayKeys) {
+      if (!finite(point[name])) continue;
+      if (point[name] < bucket.extrema[name].min[name]) bucket.extrema[name].min = point;
+      if (point[name] > bucket.extrema[name].max[name]) bucket.extrema[name].max = point;
     }
-    // An unsupported section must survive reduction, even if it lies between
-    // selected extrema in one bucket. The whole bucket then breaks continuity.
     bucket.hasGap ||= point.gapBefore;
   }
   const points = [];
@@ -213,7 +205,23 @@ function commonCurve(entries, alignment, requestedBudget) {
     if (bucket.hasGap && ordered.length) ordered[0] = { ...ordered[0], gapBefore: true };
     points.push(...ordered);
   }
-  return points.length ? { points, start, end, count: cursors.length } : null;
+  return points;
+}
+
+function commonCurve(entries, alignment, requestedBudget) {
+  if (!entries.length) return null;
+  const cursors = entries.map((entry) => ({ entry, mapping: profileMapping(entry.stats, alignment) }));
+  if (cursors.some(({ mapping }) => !mapping)) return null;
+  const mapped = (cursor, time) => cursor.mapping.offset + time * cursor.mapping.scale;
+  // Normalized endpoints are exact despite large absolute logger clocks.
+  const start = alignment === "normalized" ? 0 : Math.max(...cursors.map((cursor) => mapped(cursor, cursor.entry.stats.start)));
+  const end = alignment === "normalized" ? 100 : Math.min(...cursors.map((cursor) => mapped(cursor, cursor.entry.stats.end)));
+  if (!(end > start)) return null;
+  const limit = finite(requestedBudget) ? Math.min(MAX_CURVE_POINTS, Math.max(20, Math.floor(requestedBudget))) : 800;
+  const thrust = commonSignalCurve(entries, alignment, Math.floor(limit / 2), "thrust", start, end);
+  const pressure = commonSignalCurve(entries, alignment, Math.floor(limit / 2), "pressure", start, end);
+  const points = mergeSignalCurves(thrust, pressure);
+  return points.length ? { points, start, end, count: entries.length } : null;
 }
 
 /** Every eligible test has equal weight, irrespective of logger sample rate.

@@ -200,7 +200,7 @@ export function drawVideoDetails(
     ? cumulativeAt(
         data,
         style.summaryMode === "final"
-          ? data.end
+          ? data.overallEnd
           : dataTimeAt(videoTime, offset, timeScale),
       )
     : null;

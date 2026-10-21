@@ -2,8 +2,20 @@ import { $, setText } from "./dom.js";
 import { frameInfoAt, selectedFrameRange } from "./timing.js";
 import { dataTimeAt, logPositionAt } from "./data.js";
 import { sourceTimestamp } from "./units.js";
-import { bindText } from "./i18n.js";
+import { bindText, renderMessage } from "./i18n.js";
 import { message, errorMessage } from "./messages.js";
+import { logRowNumbers, logRateLabel } from "./log-details.js";
+
+function positionStatus(log) {
+  if (!log) return "No CSV loaded";
+  if (log.phase === "exact") return "Exact sample";
+  if (log.phase === "gap") return "Data gap · no interpolation";
+  if (log.phase === "before") return "Before log";
+  if (log.phase === "after") return "After log";
+  if (log.phase !== "interpolated") return "—";
+  const percentage = log.fraction > 0.9995 ? ">99.9%" : log.fraction < 0.0005 ? "<0.1%" : `${(log.fraction * 100).toFixed(1)}%`;
+  return message("Interpolated · {percentage}", { percentage });
+}
 
 export function createVideoInfoController(editor) {
   const { state, video } = editor;
@@ -30,36 +42,22 @@ export function createVideoInfoController(editor) {
   function updateFrame(time) {
     const csvTime = dataTimeAt(time, state.offset, state.timeScale);
     const log = logPositionAt(state.data, csvTime);
-    const percentage =
-      log &&
-      (log.fraction > 0.9995
-        ? ">99.9%"
-        : log.fraction < 0.0005
-          ? "<0.1%"
-          : `${(log.fraction * 100).toFixed(1)}%`);
     setText(
       "video-log-row",
-      log?.first
-        ? `${log.first.line}${log.second ? ` → ${log.second.line}` : ""}`
-        : "—",
+      logRowNumbers(state.data, csvTime),
     );
     bindText(
       "video-log-status",
-      !log
-        ? "No CSV loaded"
-        : log.phase === "exact"
-          ? "Exact sample"
-          : log.phase === "interpolated"
-            ? message("Interpolated · {percentage}", { percentage })
-            : log.phase === "gap"
-              ? "Data gap · no interpolation"
-              : log.phase === "before"
-                ? "Before log"
-                : "After log",
+      state.data?.separateTime ? message("T: {thrust} · P: {pressure}", {
+        thrust: renderMessage(positionStatus(log)),
+        pressure: renderMessage(positionStatus(logPositionAt(state.data, csvTime, "pressure"))),
+      }) : positionStatus(log),
     );
     setText(
       "video-log-time",
-      state.data ? sourceTimestamp(csvTime, state.data.sourceUnits.time) : "—",
+      state.data ? state.data.separateTime
+        ? `T ${sourceTimestamp(csvTime, state.data.sourceUnits.time)} · P ${sourceTimestamp(csvTime, state.data.sourceUnits.pressureTime)}`
+        : sourceTimestamp(csvTime, state.data.sourceUnits.time) : "—",
     );
     const frame = frameInfoAt(
       state.frameTimes,
@@ -100,9 +98,7 @@ export function createVideoInfoController(editor) {
         : state.file
           ? "Checking…"
           : "—";
-    const logRate = state.data
-      ? `${((state.data.points.length - 1) / state.data.duration).toFixed(1)} Hz`
-      : "—";
+    const logRate = logRateLabel(state.data) || "—";
     bindText("timing-video-rate", rate);
     setText("timing-log-rate", logRate);
     bindText(

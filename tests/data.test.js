@@ -30,7 +30,7 @@ test("accepts BOM, reordered columns, decimal commas, comments, and scientific n
   const data = parseCSV(
     '\uFEFFpressure;time_ms;thrust\n# comment\n"1,5";0;2e1\n2;100;30',
   );
-  assert.equal(data.points[0].pressure, 1.5);
+  assert.equal(data.pressurePoints[0].pressure, 1.5);
   assert.equal(data.peakThrust, 30);
   assert.equal(data.impulse, 2.5);
 });
@@ -213,7 +213,7 @@ test("downsampling preserves a single narrow thrust or pressure peak", () => {
     pressure: i === 6342 ? 100 : 0,
     impulse: 0,
   }));
-  const reduced = chartPoints({ points }, 300);
+  const reduced = chartPoints({ points, pressurePoints: points.map(({ t, pressure }) => ({ t, pressure })) }, 300);
   assert.ok(reduced.length < 1000);
   assert.equal(Math.max(...reduced.map((p) => p.thrust)), 1000);
   assert.equal(Math.max(...reduced.map((p) => p.pressure)), 100);

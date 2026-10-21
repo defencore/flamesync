@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {{start:number,end:number}} TimeInterval */
+/** @typedef {{start:number,end:number,overallStart?:number,overallEnd?:number}} TimeInterval */
 /** @typedef {{start?:number|null,end?:number|null}} BurnInterval */
 /** @typedef {{data:TimeInterval,stats?:BurnInterval|null,offset:number,timeScale:number,enabled?:boolean}} TheoryTrace */
 
@@ -42,7 +42,7 @@ export function overlayTimeDomain(data, theory = null, measurement = null, range
   const burns = [];
   const measuredSource = interval(data);
   if (measuredSource) {
-    sources.push(measuredSource);
+    sources.push(interval({ start: data?.overallStart ?? measuredSource.start, end: data?.overallEnd ?? measuredSource.end }) ?? measuredSource);
     const selected = burnInterval(measuredSource, measurement);
     if (selected) burns.push(selected);
   }
@@ -55,7 +55,7 @@ export function overlayTimeDomain(data, theory = null, measurement = null, range
       start: theory.offset + source.start * theory.timeScale,
       end: theory.offset + source.end * theory.timeScale,
     });
-    const mappedSource = mapped(theorySource);
+    const mappedSource = mapped({ start: theory.data.overallStart ?? theorySource.start, end: theory.data.overallEnd ?? theorySource.end });
     if (mappedSource) sources.push(mappedSource);
     const selected = burnInterval(theorySource, theory.stats);
     const mappedBurn = selected && mapped(selected);

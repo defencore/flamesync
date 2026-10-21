@@ -3,6 +3,7 @@ import { displayThrust, displayPressure } from "./units.js";
 import { frameInfoAt } from "./timing.js";
 import { textLines, filenameLabel } from "./canvas-text.js";
 import { stackedTelemetryGeometry } from "./composition-layout.js";
+import { logRowNumbers, logRateLabel } from "./log-details.js";
 
 const foreground = "#edf3f7";
 const muted = "#bdcbd6";
@@ -174,14 +175,14 @@ function drawTechnicalHeader(ctx, header, source, data, videoTime, csvTime) {
   const frameLabel = frame
     ? `Frame ${String(frame.number).padStart(6, "0")} / ${source.timestamps.length.toLocaleString("en-US")} · ${frame.timestamp.toFixed(6)} s`
     : "Frame —";
-  const logLabel = log?.first
+  const logLabel = data?.separateTime ? `Log rows ${logRowNumbers(data, csvTime)}` : log?.first
     ? `Log row ${log.first.line}${log.second ? ` → ${log.second.line}` : ""}${log.phase === "gap" ? " · GAP" : ""}`
     : `Log row —${log?.phase === "before" ? " · awaiting data" : log?.phase === "after" ? " · complete" : ""}`;
   const logPosition = data ? `${logLabel} · ${csvTime.toFixed(6)} s` : "No telemetry loaded";
   const format = source?.width && source?.height
     ? `${source.width} × ${source.height} · ${fps}${source.variable ? " · VFR" : ""}`
     : "No video loaded";
-  const rate = data?.duration > 0 ? `${((data.points.length - 1) / data.duration).toFixed(1)} Hz avg` : "";
+  const rate = data ? `${logRateLabel(data)} avg` : "";
   const acquisition = `${format}${rate ? ` · ${rate}` : ""}`;
   const compact = header.height > 42;
   ctx.fillStyle = "#101820";

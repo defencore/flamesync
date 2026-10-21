@@ -311,6 +311,22 @@ test("the sidebar exposes only observed peaks in live mode and all final results
   assert.ok(!final.some(({ value }) => value === "CSV TIME"));
 });
 
+test("final sidebar results include pressure recorded after the thrust clock ends", () => {
+  const data = parseCSV("force_s;force;pressure_s;pressure\n0;0;0;0\n1;10;2;20", {
+    timeUnit: "s", pressureTimeUnit: "s",
+    columns: { thrustTime: 0, thrust: 1, pressureTime: 2, pressure: 3 },
+  });
+  const live = render(recordingContext(1280, 720), { data, time: 1 });
+  const livePeak = live.findIndex(({ value }) => value === "PEAK PRESSURE");
+  assert.equal(live[livePeak + 1].value, "10.0 bar");
+  const final = render(recordingContext(1280, 720), { data, time: 1,
+    style: { summaryMode: "final" } });
+  const finalPeak = final.findIndex(({ value }) => value === "PEAK PRESSURE");
+  assert.equal(final[finalPeak + 1].value, "20.0 bar");
+  assert.ok(final.some(({ value }) => value === "FINAL RESULTS"));
+  assert.ok(!final.some(({ value }) => value === "LIVE TOTALS"));
+});
+
 test("different video and logger clocks show frame diagnostics without inventing rows outside the log", () => {
   const sourceInfo = {
     width: 1920,
@@ -889,6 +905,18 @@ function assertNoTextOverlap(texts, message) {
     }
   }
 }
+
+test("a valid pressure-only part of a custom log is not labelled awaiting or complete", () => {
+  const data = parseCSV("force_s;load;pressure_s;bar\n1;0;0;1\n1.5;10;1;2\n2;0;3;3", {
+    timeUnit: "s", pressureTimeUnit: "s", columns: { thrustTime: 0, thrust: 1, pressureTime: 2, pressure: 3 },
+  });
+  for (const time of [.5, 2.5]) {
+    const texts = render(recordingContext(1920, 1080), { data, time,
+      style: { layout: "stacked", chartRange: "full" } });
+    assert.ok(!texts.some(({ value }) => /AWAITING DATA|TEST COMPLETE/.test(value)));
+    assert.ok(!texts.some(({ value }) => /NaN|Infinity/.test(value)));
+  }
+});
 
 test("stacked totals remain live while complete-log results occupy the graph header without an impulse footer", () => {
   const { left, panel, plots } = stackedRegions(1920, 1080);

@@ -139,9 +139,12 @@ export function drawMeasurementChart(
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.7;
     ctx.beginPath();
-    reduced.forEach((p, i) => {
-      if (!i || p.gapBefore) ctx.moveTo(x(p.t), y(p[key], key));
+    let connected = false;
+    reduced.forEach((p) => {
+      if (!Number.isFinite(p[key])) { connected = false; return; }
+      if (!connected || p[`${key}GapBefore`]) ctx.moveTo(x(p.t), y(p[key], key));
       else ctx.lineTo(x(p.t), y(p[key], key));
+      connected = true;
     });
     ctx.stroke();
   }

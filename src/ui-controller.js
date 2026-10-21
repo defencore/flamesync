@@ -34,9 +34,9 @@ export function createUIController(editor) {
       state.exporting;
     const overlaps =
       state.data &&
-      videoTimeAt(state.data.end, state.offset, state.timeScale) >
+      videoTimeAt(state.data.overallEnd, state.offset, state.timeScale) >
         state.start &&
-      videoTimeAt(state.data.start, state.offset, state.timeScale) < state.end;
+      videoTimeAt(state.data.overallStart, state.offset, state.timeScale) < state.end;
     for (const button of document.querySelectorAll("[data-save-video]"))
       button.disabled = unavailable || !overlaps;
     const status =

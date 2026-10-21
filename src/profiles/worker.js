@@ -13,6 +13,9 @@ const metadata = (source) => ({
   id: source.id, name: source.file.name, size: source.file.size,
   start: source.data.start, end: source.data.end,
   count: source.data.points.length, sourceUnits: source.data.sourceUnits,
+  pressureCount: source.data.pressurePoints.length, channels: source.data.channels,
+  columnMapping: source.data.columnMapping, hasHeader: source.data.hasHeader,
+  overallStart: source.data.overallStart, overallEnd: source.data.overallEnd,
   rate: (source.data.points.length - 1) / source.data.duration,
 });
 async function handle(request) {
@@ -83,15 +86,28 @@ async function handle(request) {
         const record = records.find((item) => item.id === id), data = sources.get(id).data;
         const points = series.curve.points.map((mean) => {
           const time = (mean.t - record.mapping.offset) / record.mapping.scale;
-          const point = sampleAt(data, Math.max(data.start, Math.min(data.end, time)));
-          return point ? { t: mean.t, thrust: point.thrust - mean.thrust, pressure: point.pressure - mean.pressure, gapBefore: mean.gapBefore } : null;
-        }).filter(Boolean);
+          const point = sampleAt(data, time);
+          const difference = { t: mean.t, thrust: null, pressure: null,
+            thrustGapBefore: !!mean.thrustGapBefore, pressureGapBefore: !!mean.pressureGapBefore };
+          for (const key of ["thrust", "pressure"]) {
+            if (Number.isFinite(point?.[key]) && Number.isFinite(mean[key])) difference[key] = point[key] - mean[key];
+            else difference[`${key}GapBefore`] = true;
+          }
+          difference.gapBefore = difference.thrustGapBefore && difference.pressureGapBefore;
+          return difference;
+        });
         return { id, points };
       }) : [];
-      series.zeroCurve = series.curve?.points.map((point) => ({ ...point,
-        thrustMin: point.thrustMin - point.thrust, thrustMax: point.thrustMax - point.thrust,
-        pressureMin: point.pressureMin - point.pressure, pressureMax: point.pressureMax - point.pressure,
-        thrust: 0, pressure: 0 })) ?? [];
+      series.zeroCurve = series.curve?.points.map((point) => {
+        const zero = { ...point };
+        for (const key of ["thrust", "pressure"]) {
+          zero[key] = Number.isFinite(point[key]) ? 0 : null;
+          for (const suffix of ["Min", "Max"])
+            zero[`${key}${suffix}`] = Number.isFinite(point[key]) && Number.isFinite(point[`${key}${suffix}`])
+              ? point[`${key}${suffix}`] - point[key] : null;
+        }
+        return zero;
+      }) ?? [];
     }
     return { records, series, theoryCurves: request.theory ? theoryAnalysis?.curves ?? null : null };
   }
